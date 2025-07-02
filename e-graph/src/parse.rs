@@ -19,6 +19,7 @@ use nom::{
 
 use crate::fpeg::{
     Lit,
+    Prim,
 };
 
 
@@ -44,6 +45,14 @@ fn parse_w64(s: &str) -> IResult<&str, Lit> {
 
 pub fn parse_lit(s: &str) -> IResult<&str, Lit> {
     alt((parse_w8, parse_w32, parse_w64)).parse(s)
+}
+
+pub fn parse_prim(s: &str) -> IResult<&str, Prim> {
+    todo!()
+}
+
+pub fn parse_constr(s: &str) -> IResult<&str, Prim> {
+    todo!()
 }
 
 
