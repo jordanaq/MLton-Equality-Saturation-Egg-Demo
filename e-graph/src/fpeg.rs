@@ -43,7 +43,7 @@ impl FromStr for Lit {
 }
 
 
-type Type = String;
+pub type Type = String;
 
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -65,13 +65,13 @@ impl FromStr for Prim {
 
 impl fmt::Display for Prim {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+        write!(f, "Prim<{}>({})", self.0, self.1.join(", "))
     }
 }
 
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Constr(String, Vec<Type>);
+pub struct Constr(String, Type, Vec<Type>);
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseConstrErr;
@@ -96,10 +96,20 @@ impl fmt::Display for Constr {
 
 define_language! {
     pub enum FPeg {
-        Lit(Lit),
+        // A literal of an SML primitive type
+        Literal(Lit),
+
+        // Represents a block argument
         Arg(String),
-        Prim(Prim, Vec<Id>),
-        Constr(Constr, Vec<Id>),
+
+        // Represents a call of an SML primitive function
+        CallPrim(Prim, Box<[Id]>),
+
+        // Construct a datatype given a constructor and an arbitrary number of args
+        Construct(Constr, Box<[Id]>),
+
+        // Deconstruct given a constructor and a field
+        Deconstruct(Constr, [Id; 2]),
     }
 }
 
