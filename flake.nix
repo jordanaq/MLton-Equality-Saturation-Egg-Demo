@@ -13,11 +13,22 @@
         rustVersion = pkgs.rust-bin.stable.latest.default;
       in {
         devShells.default = pkgs.mkShell {
-          buildInputs = [
-            (rustVersion.override { extensions = [ "rust-src" ]; })
-            pkgs.rust-analyzer
+          buildInputs = with pkgs; [
+            (rustVersion.override { extensions = [ "rust-src" ]; })  # required for rust-analyzer
+            rust-analyzer                                            # IDE support
+            cargo                                                    # core Rust tool
+            rustPackages.clippy                                      # lints
+            rustPackages.rustfmt                                     # formatting
+            pkg-config                                               # linking C-based crates
+            openssl                                                  # common native dependency
+            gcc                                                      # builds C/C++ dependencies
+            lldb                                                     # debugging
+            cargo-watch                                              # optional: reload-on-save
+            cargo-nextest                                            # optional: fast testing
           ];
+          # Optionally configure shellHook for CARGO_HOME, PATH, etc.
         };
+
       });
 }
 
