@@ -50,3 +50,16 @@ define_language! {
         "Prim" = Prim(Box<[Id]>),
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lit_to_str() {
+        assert_eq!(format!("{}", Lit::Word8(0)), "Word8(0)");
+        assert_eq!(format!("{}", Lit::Word32(0)), "Word32(0)");
+        assert_eq!(format!("{}", Lit::Word64(0)), "Word64(0)");
+    }
+}
