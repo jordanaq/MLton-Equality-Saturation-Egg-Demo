@@ -3,5 +3,17 @@
 version = 4
 
 [[package]]
-name = "demo"
+name = "e-graph"
+version = "0.1.0"
+
+[[package]]
+name = "from_ssa"
+version = "0.1.0"
+
+[[package]]
+name = "skeleton"
+version = "0.1.0"
+
+[[package]]
+name = "to_ssa"
 version = "0.1.0"
