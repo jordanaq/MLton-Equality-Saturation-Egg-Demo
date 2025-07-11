@@ -14,7 +14,7 @@ use sml_utils::SmlType;
 
 use crate::{
     Constr,
-    fpeg::{Lit, Prim,},
+    fpeg::{Lit, Prim},
 };
 
 fn surrounded<'a, O1, O2, O3, E>(

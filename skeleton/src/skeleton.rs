@@ -4,7 +4,6 @@ use e_graph::*;
 
 use sml_utils::SmlType;
 
-
 type IdType = u64;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -14,15 +13,13 @@ struct BlockArg {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum Transfer {
-
-}
+enum Transfer {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Block {
     id: IdType,
     inputs: Vec<BlockArg>,
-    transfer: Transfer
+    transfer: Transfer,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
