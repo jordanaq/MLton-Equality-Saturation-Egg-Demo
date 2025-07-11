@@ -1,12 +1,8 @@
 use std::{fmt, str::FromStr};
 
-use egg::{
-    define_language,
-    Id
-};
+use egg::{Id, define_language};
 
 use crate::parse::*;
-
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Lit {
@@ -19,10 +15,10 @@ pub enum Lit {
 impl fmt::Display for Lit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Lit::Word8(v)   => write!(f, "Word8({})", v),
-            Lit::Word32(v)  => write!(f, "Word32({})", v),
-            Lit::Word64(v)  => write!(f, "Word64({})", v),
-            Lit::Unit       => write!(f, "Unit()"),
+            Lit::Word8(v) => write!(f, "Word8({})", v),
+            Lit::Word32(v) => write!(f, "Word32({})", v),
+            Lit::Word64(v) => write!(f, "Word64({})", v),
+            Lit::Unit => write!(f, "Unit()"),
         }
     }
 }
@@ -41,9 +37,7 @@ impl FromStr for Lit {
     }
 }
 
-
 pub type Type = String;
-
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Prim(pub String, pub Vec<Type>);
@@ -59,7 +53,7 @@ impl FromStr for Prim {
             Ok(("", prim)) => Ok(prim),
             _ => Err(ParsePrimErr),
         }
-   }
+    }
 }
 
 impl fmt::Display for Prim {
@@ -67,7 +61,6 @@ impl fmt::Display for Prim {
         write!(f, "Prim<{}>({})", self.0, self.1.join(", "))
     }
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Constr(pub String, pub Type, pub Vec<Type>);
@@ -83,7 +76,7 @@ impl FromStr for Constr {
             Ok(("", constr)) => Ok(constr),
             _ => Err(ParseConstrErr),
         }
-   }
+    }
 }
 
 impl fmt::Display for Constr {
@@ -91,7 +84,6 @@ impl fmt::Display for Constr {
         write!(f, "Constr<{}>({}) : {}", self.0, self.2.join(", "), self.1)
     }
 }
-
 
 define_language! {
     pub enum FPeg {
@@ -112,7 +104,6 @@ define_language! {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,7 +119,7 @@ mod tests {
     #[test]
     fn test_prim_to_str() {
         let add = "Add".to_owned();
-        let xs = vec!["a".to_owned(), "b".to_owned(),];
+        let xs = vec!["a".to_owned(), "b".to_owned()];
         let prim = Prim(add, xs);
         assert_eq!(format!("{}", prim), "Prim<Add>(a, b)");
     }
@@ -136,7 +127,7 @@ mod tests {
     #[test]
     fn test_constr_to_str() {
         let add = "Add".to_owned();
-        let xs = vec!["a".to_owned(), "b".to_owned(),];
+        let xs = vec!["a".to_owned(), "b".to_owned()];
         let t = "T".to_owned();
         let constr = Constr(add, t, xs);
         assert_eq!(format!("{}", constr), "Constr<Add>(a, b) : T");
