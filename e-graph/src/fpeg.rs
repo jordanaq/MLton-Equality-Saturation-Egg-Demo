@@ -138,7 +138,7 @@ mod tests {
         let add = "Add".to_owned();
         let xs = vec!["a".to_owned(), "b".to_owned(),];
         let t = "T".to_owned();
-        let prim = Constr(add, t, xs);
-        assert_eq!(format!("{}", prim), "Constr<Add>(a, b) : T");
+        let constr = Constr(add, t, xs);
+        assert_eq!(format!("{}", constr), "Constr<Add>(a, b) : T");
     }
 }
