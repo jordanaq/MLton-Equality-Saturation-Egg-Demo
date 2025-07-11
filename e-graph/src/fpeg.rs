@@ -36,8 +36,7 @@ impl FromStr for Lit {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match parse_lit(s) {
             Ok(("", lit)) => Ok(lit),
-            Ok(_) => Err(ParseLitErr),
-            Err(_) => Err(ParseLitErr),
+            _ => Err(ParseLitErr),
         }
     }
 }
@@ -47,7 +46,7 @@ pub type Type = String;
 
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Prim(String, Vec<Type>);
+pub struct Prim(pub String, pub Vec<Type>);
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParsePrimErr;
@@ -57,8 +56,8 @@ impl FromStr for Prim {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match parse_prim(s) {
-            Ok(_) => todo!(),
-            Err(_) => todo!()
+            Ok(("", prim)) => Ok(prim),
+            _ => Err(ParsePrimErr),
         }
    }
 }
@@ -71,7 +70,7 @@ impl fmt::Display for Prim {
 
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Constr(String, Type, Vec<Type>);
+pub struct Constr(pub String, pub Type, pub Vec<Type>);
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseConstrErr;
@@ -81,15 +80,15 @@ impl FromStr for Constr {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match parse_constr(s) {
-            Ok(_) => todo!(),
-            Err(_) => todo!()
+            Ok(("", constr)) => Ok(constr),
+            _ => Err(ParseConstrErr),
         }
    }
 }
 
 impl fmt::Display for Constr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+        write!(f, "Constr<{}>({}) : {}", self.0, self.2.join(", "), self.1)
     }
 }
 
@@ -124,5 +123,22 @@ mod tests {
         assert_eq!(format!("{}", Lit::Word32(0)), "Word32(0)");
         assert_eq!(format!("{}", Lit::Word64(0)), "Word64(0)");
         assert_eq!(format!("{}", Lit::Unit), "Unit()");
+    }
+
+    #[test]
+    fn test_prim_to_str() {
+        let add = "Add".to_owned();
+        let xs = vec!["a".to_owned(), "b".to_owned(),];
+        let prim = Prim(add, xs);
+        assert_eq!(format!("{}", prim), "Prim<Add>(a, b)");
+    }
+
+    #[test]
+    fn test_constr_to_str() {
+        let add = "Add".to_owned();
+        let xs = vec!["a".to_owned(), "b".to_owned(),];
+        let t = "T".to_owned();
+        let prim = Constr(add, t, xs);
+        assert_eq!(format!("{}", prim), "Constr<Add>(a, b) : T");
     }
 }
