@@ -10,9 +10,11 @@ use nom::{
     sequence::{pair, preceded, terminated},
 };
 
+use sml_utils::SmlType;
+
 use crate::{
     Constr,
-    fpeg::{Lit, Prim, Type},
+    fpeg::{Lit, Prim,},
 };
 
 fn surrounded<'a, O1, O2, O3, E>(
@@ -57,7 +59,7 @@ pub fn parse_lit(s: &str) -> IResult<&str, Lit> {
     alt((parse_w8, parse_w32, parse_w64)).parse(s)
 }
 
-fn parse_type(s: &str) -> IResult<&str, Type> {
+fn parse_type(s: &str) -> IResult<&str, SmlType> {
     let (rest, s) = word().parse(s)?;
 
     Ok((rest, s.to_owned()))

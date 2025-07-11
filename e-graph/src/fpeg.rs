@@ -2,6 +2,8 @@ use std::{fmt, str::FromStr};
 
 use egg::{Id, define_language};
 
+use sml_utils::SmlType;
+
 use crate::parse::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -37,10 +39,8 @@ impl FromStr for Lit {
     }
 }
 
-pub type Type = String;
-
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Prim(pub String, pub Vec<Type>);
+pub struct Prim(pub String, pub Vec<SmlType>);
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParsePrimErr;
@@ -63,7 +63,7 @@ impl fmt::Display for Prim {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Constr(pub String, pub Type, pub Vec<Type>);
+pub struct Constr(pub String, pub SmlType, pub Vec<SmlType>);
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseConstrErr;

@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 egg = "0.10.0"
 nom = "8"
+sml_utils = { path = "../sml_utils" }
