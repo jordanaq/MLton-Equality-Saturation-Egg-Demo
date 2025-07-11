@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 e-graph = { path = "../e-graph" }
+sml_utils = { path = "../sml_utils" }
