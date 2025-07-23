@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 egg = "0.10.0"
-nom = "8"
-sml_utils = { path = "../sml_utils" }
 graphviz-rust = "0.9"
+nom = "8"
+parse_utils = { path = "../parse_utils" }
+sml_utils = { path = "../sml_utils" }

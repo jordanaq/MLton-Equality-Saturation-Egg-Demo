@@ -7,30 +7,16 @@ use nom::{
     character::multispace0,
     error::ParseError,
     multi::separated_list0,
-    sequence::{pair, preceded, separated_pair, terminated},
+    sequence::{delimited, pair, preceded, separated_pair, terminated},
 };
 
 use sml_utils::SmlType;
 
+use parse_utils::{
+    word
+};
+
 use crate::fpeg::{Constr, Lit, Param, Prim};
-
-fn surrounded<'a, O1, O2, O3, E>(
-    before: impl Parser<&'a str, Output = O1, Error = E>,
-    inner: impl Parser<&'a str, Output = O2, Error = E>,
-    after: impl Parser<&'a str, Output = O3, Error = E>,
-) -> impl Parser<&'a str, Output = O2, Error = E>
-where
-    E: nom::error::ParseError<&'a str>,
-{
-    preceded(before, terminated(inner, after))
-}
-
-fn word<'a, E>() -> impl Parser<&'a str, Output = &'a str, Error = E>
-where
-    E: ParseError<&'a str>,
-{
-    take_while1(|c| AsChar::is_alphanum(c) || "-_".contains(c))
-}
 
 fn parse_hex(s: &str) -> IResult<&str, u64> {
     let (rest, hex) = preceded(tag("0x"), take_while1(AsChar::is_hex_digit)).parse(s)?;
@@ -99,7 +85,7 @@ fn parse_unit(s: &str) -> IResult<&str, Lit> {
 }
 
 pub fn parse_lit(s: &str) -> IResult<&str, Lit> {
-    surrounded(
+    delimited(
         (tag("Lit<"), multispace0()),
         alt((parse_w8, parse_w16, parse_w32, parse_w64, parse_unit)),
         (multispace0(), tag(">")),
@@ -113,24 +99,13 @@ fn parse_type(s: &str) -> IResult<&str, SmlType> {
     Ok((rest, s.to_owned()))
 }
 
-fn paren_list<'a, E>() -> impl Parser<&'a str, Output = Vec<&'a str>, Error = E>
-where
-    E: ParseError<&'a str>,
-{
-    surrounded(
-        tag("("),
-        separated_list0(pair(tag(","), multispace0()), word()),
-        tag(")"),
-    )
-}
-
 pub fn parse_prim(s: &str) -> IResult<&str, Prim> {
-    let (rest, prim_r) = surrounded(tag("Prim<"), word(), tag(">")).parse(s)?;
+    let (rest, prim_r) = delimited(tag("Prim<"), word(), tag(">")).parse(s)?;
     Ok((rest, Prim(prim_r.to_string())))
 }
 
 pub fn parse_constr(s: &str) -> IResult<&str, Constr> {
-    let (rest, (type_s, constr_r)) = (surrounded(
+    let (rest, (type_s, constr_r)) = (delimited(
         tag("Constr<"),
         (parse_type, preceded(tag("::"), word())),
         tag(">"),
@@ -147,7 +122,7 @@ pub fn parse_constr(s: &str) -> IResult<&str, Constr> {
 }
 
 pub fn parse_param(s: &str) -> IResult<&str, Param> {
-    let (rest, (param_r, t_s)) = surrounded(
+    let (rest, (param_r, t_s)) = delimited(
         tag("Param<"),
         separated_pair(word(), (multispace0(), tag(":"), multispace0()), parse_type),
         tag(">"),
