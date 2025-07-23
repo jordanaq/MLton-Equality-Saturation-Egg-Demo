@@ -38,38 +38,58 @@ fn parse_hex(s: &str) -> IResult<&str, u64> {
 }
 
 fn parse_w8(s: &str) -> IResult<&str, Lit> {
-    let (rest, w8) =
-        terminated(
-            parse_hex,
-            (multispace0(), tag(":"), multispace0(), alt((tag("word8"), tag("w8"))))
-        ).parse(s)?;
+    let (rest, w8) = terminated(
+        parse_hex,
+        (
+            multispace0(),
+            tag(":"),
+            multispace0(),
+            alt((tag("word8"), tag("w8"))),
+        ),
+    )
+    .parse(s)?;
     Ok((rest, Lit::Word8(u8::try_from(w8).unwrap())))
 }
 
 fn parse_w16(s: &str) -> IResult<&str, Lit> {
-    let (rest, w16) =
-        terminated(
-            parse_hex,
-            (multispace0(), tag(":"), multispace0(), alt((tag("word16"), tag("w16"))) )
-        ).parse(s)?;
+    let (rest, w16) = terminated(
+        parse_hex,
+        (
+            multispace0(),
+            tag(":"),
+            multispace0(),
+            alt((tag("word16"), tag("w16"))),
+        ),
+    )
+    .parse(s)?;
     Ok((rest, Lit::Word16(u16::try_from(w16).unwrap())))
 }
 
 fn parse_w32(s: &str) -> IResult<&str, Lit> {
-    let (rest, w32) =
-        terminated(
-            parse_hex,
-            (multispace0(), tag(":"), multispace0(), alt((tag("word32"), tag("w32"))) )
-        ).parse(s)?;
+    let (rest, w32) = terminated(
+        parse_hex,
+        (
+            multispace0(),
+            tag(":"),
+            multispace0(),
+            alt((tag("word32"), tag("w32"))),
+        ),
+    )
+    .parse(s)?;
     Ok((rest, Lit::Word32(u32::try_from(w32).unwrap())))
 }
 
 fn parse_w64(s: &str) -> IResult<&str, Lit> {
-    let (rest, w64) =
-        terminated(
-            parse_hex,
-            (multispace0(), tag(":"), multispace0(), alt((tag("word64"), tag("w64"))) )
-        ).parse(s)?;
+    let (rest, w64) = terminated(
+        parse_hex,
+        (
+            multispace0(),
+            tag(":"),
+            multispace0(),
+            alt((tag("word64"), tag("w64"))),
+        ),
+    )
+    .parse(s)?;
     Ok((rest, Lit::Word64(u64::try_from(w64).unwrap())))
 }
 
@@ -82,8 +102,9 @@ pub fn parse_lit(s: &str) -> IResult<&str, Lit> {
     surrounded(
         (tag("Lit<"), multispace0()),
         alt((parse_w8, parse_w16, parse_w32, parse_w64, parse_unit)),
-        (multispace0(), tag(">"))
-    ).parse(s)
+        (multispace0(), tag(">")),
+    )
+    .parse(s)
 }
 
 fn parse_type(s: &str) -> IResult<&str, SmlType> {
