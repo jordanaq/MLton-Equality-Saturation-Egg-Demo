@@ -513,6 +513,7 @@ version = "0.1.0"
 dependencies = [
  "e-graph",
  "nom",
+ "parse_utils",
  "sml_utils",
 ]
 
