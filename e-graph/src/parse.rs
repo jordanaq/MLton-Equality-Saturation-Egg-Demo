@@ -77,26 +77,25 @@ where
 }
 
 pub fn parse_prim(s: &str) -> IResult<&str, Prim> {
-    let (rest, (prim_s, xs)) = (
-        surrounded(tag("Prim<"), take_while1(AsChar::is_alpha), tag(">")),
-        paren_list(),
-    )
-        .parse(s)?;
-    let xs_p = xs.into_iter().map(String::from).collect();
-
-    Ok((rest, Prim(prim_s.to_string(), xs_p)))
+    let (rest, prim_r) = surrounded(tag("Prim<"), word(), tag(">")).parse(s)?;
+    Ok((rest, Prim(prim_r.to_string())))
 }
 
 pub fn parse_constr(s: &str) -> IResult<&str, Constr> {
-    let (rest, (constr_s, xs, type_s)) = (
-        surrounded(tag("Constr<"), word(), tag(">")),
-        paren_list(),
-        preceded((multispace0(), tag(":"), multispace0()), parse_type),
-    )
-        .parse(s)?;
-    let xs_p = xs.into_iter().map(String::from).collect();
+    let (rest, (type_s, constr_r)) = (surrounded(
+        tag("Constr<"),
+        (parse_type, preceded(tag("::"), word())),
+        tag(">"),
+    ))
+    .parse(s)?;
 
-    Ok((rest, Constr(constr_s.to_owned(), type_s, xs_p)))
+    Ok((
+        rest,
+        Constr {
+            constr_type: type_s,
+            name: constr_r.to_owned(),
+        },
+    ))
 }
 
 #[cfg(test)]
@@ -140,18 +139,22 @@ mod tests {
     #[test]
     fn test_parse_prim() {
         let add = "Add".to_owned();
-        let xs = vec!["a".to_owned(), "b".to_owned()];
-        assert_eq!(parse_prim("Prim<Add>(a, b)"), Ok(("", Prim(add, xs))));
+        assert_eq!(parse_prim("Prim<Add>"), Ok(("", Prim(add))));
     }
 
     #[test]
     fn test_parse_constr() {
         let add = "Add".to_owned();
-        let xs = vec!["a".to_owned(), "b".to_owned()];
         let t = "T".to_owned();
         assert_eq!(
-            parse_constr("Constr<Add>(a, b) : T"),
-            Ok(("", Constr(add, t, xs)))
+            parse_constr("Constr<T::Add>"),
+            Ok((
+                "",
+                Constr {
+                    constr_type: t,
+                    name: add
+                }
+            ))
         );
     }
 }

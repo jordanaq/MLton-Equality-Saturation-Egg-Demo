@@ -40,7 +40,7 @@ impl FromStr for Lit {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Prim(pub String, pub Vec<SmlType>);
+pub struct Prim(pub String);
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParsePrimErr;
@@ -58,12 +58,15 @@ impl FromStr for Prim {
 
 impl fmt::Display for Prim {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Prim<{}>({})", self.0, self.1.join(", "))
+        write!(f, "Prim<{}>", self.0)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Constr(pub String, pub SmlType, pub Vec<SmlType>);
+pub struct Constr {
+    pub constr_type: SmlType,
+    pub name: String,
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseConstrErr;
@@ -81,7 +84,7 @@ impl FromStr for Constr {
 
 impl fmt::Display for Constr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Constr<{}>({}) : {}", self.0, self.2.join(", "), self.1)
+        write!(f, "Constr<{}::{}>", self.constr_type, self.name)
     }
 }
 
@@ -91,7 +94,7 @@ define_language! {
         Literal(Lit),
 
         // Represents a block argument
-        Arg(String),
+        Param(String),
 
         // Represents a call of an SML primitive function
         CallPrim(Prim, Box<[Id]>),
@@ -119,17 +122,21 @@ mod tests {
     #[test]
     fn test_prim_to_str() {
         let add = "Add".to_owned();
-        let xs = vec!["a".to_owned(), "b".to_owned()];
-        let prim = Prim(add, xs);
-        assert_eq!(format!("{}", prim), "Prim<Add>(a, b)");
+        let prim = Prim(add);
+        assert_eq!(format!("{}", prim), "Prim<Add>");
     }
 
     #[test]
     fn test_constr_to_str() {
         let add = "Add".to_owned();
-        let xs = vec!["a".to_owned(), "b".to_owned()];
         let t = "T".to_owned();
-        let constr = Constr(add, t, xs);
-        assert_eq!(format!("{}", constr), "Constr<Add>(a, b) : T");
+        let constr = Constr {
+            constr_type: t,
+            name: add,
+        };
+        assert_eq!(format!("{}", constr), "Constr<T::Add>");
     }
+
+    #[test]
+    fn test_parse_fpeg() {}
 }
