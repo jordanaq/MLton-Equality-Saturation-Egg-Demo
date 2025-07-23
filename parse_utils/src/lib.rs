@@ -8,7 +8,6 @@ use nom::{
         delimited,
         pair
     },
-    IResult,
     Parser
 };
 
