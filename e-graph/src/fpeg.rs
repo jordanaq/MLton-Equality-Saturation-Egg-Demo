@@ -1,6 +1,6 @@
-use std::{fmt, str::FromStr};
+use std::{collections::HashMap, fmt, str::FromStr};
 
-use egg::{Id, define_language};
+use egg::{EGraph, Id, define_language};
 
 use sml_utils::SmlType;
 
@@ -114,7 +114,7 @@ impl fmt::Display for Param {
 }
 
 define_language! {
-    pub enum FPeg {
+    pub enum FPegL {
         // A literal of an SML primitive type
         Literal(Lit),
 
@@ -132,11 +132,37 @@ define_language! {
     }
 }
 
+type Analysis = ();
+pub type Region = egg::Id;
+
+#[derive(Debug, Clone)]
+pub struct FPeg {
+    egraph: EGraph<FPegL, Analysis>,
+    region_map: HashMap<String, Region>,
+}
+
+impl FPeg {
+    pub fn find_region_by_name(&self, name: &str) -> Option<Region> {
+        self.region_map.get(name).copied()
+    }
+}
+
+impl Default for FPeg {
+    fn default() -> Self {
+        FPeg { 
+            egraph: EGraph::<FPegL, Analysis>::default(),
+            region_map: HashMap::<String, Region>::default()
+        }
+    }
+}
+
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use egg::{EGraph, RecExpr};
+    use egg::{RecExpr};
 
     #[test]
     fn test_lit_to_str() {
@@ -168,12 +194,12 @@ mod tests {
     #[test]
     fn test_fpeg() {
         let w32 = "word32";
-        let mut e: RecExpr<FPeg> = RecExpr::default();
-        let x_e = e.add(FPeg::Parameter(Param("x".to_owned(), w32.to_owned())));
-        let y_e = e.add(FPeg::Parameter(Param("y".to_owned(), w32.to_owned())));
-        let add_e = e.add(FPeg::CallPrim(Prim("add".to_owned()), Box::new([x_e, y_e])));
-        let lit2_e = e.add(FPeg::Literal(Lit::Word32(2)));
-        let _ = e.add(FPeg::CallPrim(
+        let mut e: RecExpr<FPegL> = RecExpr::default();
+        let x_e = e.add(FPegL::Parameter(Param("x".to_owned(), w32.to_owned())));
+        let y_e = e.add(FPegL::Parameter(Param("y".to_owned(), w32.to_owned())));
+        let add_e = e.add(FPegL::CallPrim(Prim("add".to_owned()), Box::new([x_e, y_e])));
+        let lit2_e = e.add(FPegL::Literal(Lit::Word32(2)));
+        let _ = e.add(FPegL::CallPrim(
             Prim("mul".to_owned()),
             Box::new([lit2_e, add_e]),
         ));
@@ -183,13 +209,13 @@ mod tests {
             "(Prim<mul> \"Lit<0x2 : word32>\" (Prim<add> \"Param<x : word32>\" \"Param<y : word32>\"))"
         );
 
-        let mut egraph: EGraph<FPeg, ()> = EGraph::default();
+        let mut egraph: EGraph<FPegL, ()> = EGraph::default();
         let e_id = egraph.add_expr(&e);
         egraph.rebuild();
 
         assert_eq!(Some(e_id), egraph.lookup_expr(&e));
 
-        let e_parsed: RecExpr<FPeg> = "(Prim<mul> \"Lit<0x2 : word32>\" (Prim<add> \"Param<x : word32>\" \"Param<y : word32>\"))".parse().unwrap();
+        let e_parsed: RecExpr<FPegL> = "(Prim<mul> \"Lit<0x2 : word32>\" (Prim<add> \"Param<x : word32>\" \"Param<y : word32>\"))".parse().unwrap();
         assert_eq!(Some(e_id), egraph.lookup_expr(&e_parsed));
     }
 }

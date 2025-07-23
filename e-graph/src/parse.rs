@@ -5,9 +5,7 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, take_while1},
     character::multispace0,
-    error::ParseError,
-    multi::separated_list0,
-    sequence::{delimited, pair, preceded, separated_pair, terminated},
+    sequence::{delimited, preceded, separated_pair, terminated},
 };
 
 use sml_utils::SmlType;
