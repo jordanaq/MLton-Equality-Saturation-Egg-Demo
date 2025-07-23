@@ -1,6 +1,6 @@
 use std::{fmt, str::FromStr};
 
-use egg::{EGraph, Id, RecExpr, define_language};
+use egg::{Id, define_language};
 
 use sml_utils::SmlType;
 
@@ -135,6 +135,8 @@ define_language! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use egg::{EGraph, RecExpr};
 
     #[test]
     fn test_lit_to_str() {
