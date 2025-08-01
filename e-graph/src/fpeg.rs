@@ -1,11 +1,13 @@
 use std::{collections::HashMap, fmt, str::FromStr};
 
-use egg::{EGraph, Id, define_language};
+use egg::{EGraph, Id, RecExpr, define_language};
 
 use sml_utils::SmlType;
 
 use crate::parse::*;
 
+
+/// Represents a literal in the FPeg IR
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Lit {
     Word8(u8),
@@ -41,6 +43,8 @@ impl FromStr for Lit {
     }
 }
 
+
+/// Represents a primitive SML function in the FPeg IR
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Prim(pub String);
 
@@ -64,6 +68,8 @@ impl fmt::Display for Prim {
     }
 }
 
+
+/// Represents a constructor use in the FPeg IR
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Constr {
     pub constr_type: SmlType,
@@ -90,6 +96,8 @@ impl fmt::Display for Constr {
     }
 }
 
+
+/// Represents a parameter in the FPeg IR
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Param(pub String, pub SmlType);
 
@@ -113,7 +121,9 @@ impl fmt::Display for Param {
     }
 }
 
+
 define_language! {
+    /// Defines the FPeg IR for the e-graph
     pub enum FPegL {
         // A literal of an SML primitive type
         Literal(Lit),
@@ -132,9 +142,10 @@ define_language! {
     }
 }
 
-type Analysis = ();
+type Analysis = (); // TODO:
 pub type Region = egg::Id;
 
+/// Wrapper for FPeg e-graph
 #[derive(Debug, Clone)]
 pub struct FPeg {
     egraph: EGraph<FPegL, Analysis>,
@@ -149,20 +160,31 @@ impl FPeg {
 
 impl Default for FPeg {
     fn default() -> Self {
-        FPeg { 
+        FPeg {
             egraph: EGraph::<FPegL, Analysis>::default(),
-            region_map: HashMap::<String, Region>::default()
+            region_map: HashMap::<String, Region>::default(),
         }
     }
 }
 
+impl FPeg {
+    pub fn construct_region(&mut self, code: String) -> Region {
+        if let Some(region) = self.region_map.get(&code) {
+            return *region;
+        }
 
+        let code_expr: RecExpr<FPegL> = code.parse().unwrap();
+        let region = self.egraph.add_expr(&code_expr);
+        self.region_map.insert(code, region);
+        region
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use egg::{RecExpr};
+    use egg::RecExpr;
 
     #[test]
     fn test_lit_to_str() {
@@ -197,7 +219,10 @@ mod tests {
         let mut e: RecExpr<FPegL> = RecExpr::default();
         let x_e = e.add(FPegL::Parameter(Param("x".to_owned(), w32.to_owned())));
         let y_e = e.add(FPegL::Parameter(Param("y".to_owned(), w32.to_owned())));
-        let add_e = e.add(FPegL::CallPrim(Prim("add".to_owned()), Box::new([x_e, y_e])));
+        let add_e = e.add(FPegL::CallPrim(
+            Prim("add".to_owned()),
+            Box::new([x_e, y_e]),
+        ));
         let lit2_e = e.add(FPegL::Literal(Lit::Word32(2)));
         let _ = e.add(FPegL::CallPrim(
             Prim("mul".to_owned()),
@@ -215,7 +240,10 @@ mod tests {
 
         assert_eq!(Some(e_id), egraph.lookup_expr(&e));
 
-        let e_parsed: RecExpr<FPegL> = "(Prim<mul> \"Lit<0x2 : word32>\" (Prim<add> \"Param<x : word32>\" \"Param<y : word32>\"))".parse().unwrap();
+        let e_parsed: RecExpr<FPegL> =
+            "(Prim<mul> \"Lit<0x2 : word32>\" (Prim<add> \"Param<x : word32>\" \"Param<y : word32>\"))"
+                .parse()
+                .unwrap();
         assert_eq!(Some(e_id), egraph.lookup_expr(&e_parsed));
     }
 }

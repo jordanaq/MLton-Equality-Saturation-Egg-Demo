@@ -1,17 +1,11 @@
 use nom::{
-    AsChar,
+    AsChar, Parser,
     bytes::complete::{tag, take_while1},
     character::multispace0,
     error::ParseError,
     multi::separated_list0,
-    sequence::{
-        delimited,
-        pair
-    },
-    Parser
+    sequence::{delimited, pair},
 };
-
-
 
 pub fn word<'a, E>() -> impl Parser<&'a str, Output = &'a str, Error = E>
 where

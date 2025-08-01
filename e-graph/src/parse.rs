@@ -10,9 +10,7 @@ use nom::{
 
 use sml_utils::SmlType;
 
-use parse_utils::{
-    word
-};
+use parse_utils::word;
 
 use crate::fpeg::{Constr, Lit, Param, Prim};
 
