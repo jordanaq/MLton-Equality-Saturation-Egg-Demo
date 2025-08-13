@@ -11,8 +11,6 @@ use parse_utils::{paren_list, word};
 
 use sml_utils::SmlType;
 
-// use e_graph::{ FPeg, Region };
-
 impl Skeleton {
     fn parse_comment<'a>(&'a self, s: &'a str) -> IResult<&'a str, &'a str> {
         delimited(tag("/*"), take_until("*/"), tag("*/")).parse(s)

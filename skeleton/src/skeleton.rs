@@ -55,9 +55,9 @@ impl MatchCase {
 pub(crate) enum Transfer {
     Bug,
     Goto(BlockId, Vec<Region>),
-    Call,
-    Raise,
-    Return,
+    Call(FuncId, Vec<Region>),
+    Raise(Vec<Region>),
+    Return(Vec<Region>),
     Match(Region, Vec<MatchCase>, Option<Region>),
 }
 
