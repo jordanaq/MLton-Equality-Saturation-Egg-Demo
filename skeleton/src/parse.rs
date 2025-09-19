@@ -82,7 +82,7 @@ mod test {
          
 
         let l0 = Block::new(
-            m.get_by_left(left("L0".into())).unwrap().clone(),
+            m.get_by_left("L0".into()).unwrap().clone(),
             "L0".into(),
             Vec::new(),
             Transfer::make_goto(

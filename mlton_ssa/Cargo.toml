@@ -1,0 +1,9 @@
+[package]
+name = "mlton_ssa"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+nom = "8"
+parse_utils = { path = "../parse_utils" }
+sml_utils = { path = "../sml_utils" }

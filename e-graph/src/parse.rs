@@ -1,5 +1,3 @@
-use u64;
-
 use nom::{
     AsChar, IResult, Parser,
     branch::alt,
