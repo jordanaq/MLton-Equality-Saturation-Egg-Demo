@@ -1,123 +1,169 @@
-use std::collections::HashMap;
+use std::{collections::{HashMap, HashSet}, str::FromStr};
 
 use nom::{
-    AsChar, IResult, Parser,
+    IResult, Parser,
     branch::alt,
     bytes::{complete::tag, take_till, take_until, take_while1},
-    character::{complete::multispace1, multispace0},
+    character::multispace0,
     combinator::{complete, map, opt},
-    error::ParseError,
-    multi::separated_list0,
-    sequence::{delimited, preceded, separated_pair, terminated},
+    sequence::{delimited, preceded, separated_pair},
 };
 
-use sml_utils::SmlType;
+use parse_utils::*;
 
-use parse_utils::{paren_list, word};
+use crate::ssa::*;
 
-use crate::{
-    parse,
-    ssa::{
-        Block, CFunctionConvention, CFunctionKind, CFunctionSymbolScope, CFunctionTarget, Cases,
-        Const, ConstructorId, Datatype, Exp, Function, FunctionId, Handler, Label, MltonSsa, Prim,
-        PrimKind, PrimPrimitive, RealSize, Return, Statement, Transfer, Var, VarId, WordSize,
-    },
-};
-
-type Error<'a> = nom::error::Error<&'a str>;
-
-fn surrounded_parser<'a, O, O1, O2, F, F1, F2>(
-    left: F1,
-    inner: F,
-    right: F2,
-) -> impl Parser<&'a str, Output = O, Error = Error<'a>>
-where
-    F: Parser<&'a str, Output = O, Error = Error<'a>>,
-    F1: Parser<&'a str, Output = O1, Error = Error<'a>>,
-    F2: Parser<&'a str, Output = O2, Error = Error<'a>>,
-{
-    delimited(
-        preceded(multispace0(), left),
-        inner,
-        preceded(multispace0(), right),
-    )
-}
-
-fn paren_bracket_parser<'a, O, F>(inner: F) -> impl Parser<&'a str, Output = O, Error = Error<'a>>
-where
-    F: Parser<&'a str, Output = O, Error = Error<'a>>,
-{
-    surrounded_parser((tag("("), multispace0()), inner, (multispace0(), tag(")")))
-}
-
-fn tagify_parser<'a, O, F>(inner: F) -> impl Parser<&'a str, Output = O, Error = Error<'a>>
-where
-    F: Parser<&'a str, Output = O, Error = Error<'a>>,
-{
-    complete(delimited(multispace0(), inner, multispace0()))
-}
-
-fn parse_true_false(s: &str) -> IResult<&str, bool> {
-    alt((tag("true"), tag("false")))
-        .map(|s| s == "true")
+fn parse_sml_type_array(s: &str) -> IResult<&str, SmlType> {
+    named_tuple_parser("Array", parse_sml_type_raw)
+        .map(|t| SmlType::Array(Box::new(t)))
         .parse(s)
 }
 
-fn named_object_parser<'a, O, F>(
-    name: &'static str,
-    inner: F,
-) -> impl Parser<&'a str, Output = O, Error = Error<'a>>
-where
-    F: Parser<&'a str, Output = O, Error = Error<'a>>,
-{
-    surrounded_parser(
-        (tag(name), multispace0(), tag("{")),
-        tagify_parser(inner),
-        tag("}"),
+fn parse_sml_type_cpointer(s: &str) -> IResult<&str, SmlType> {
+    tagify_parser(tag("CPointer"))
+        .map(|_| SmlType::CPointer)
+        .parse(s)
+}
+
+fn parse_sml_type_datatype(s: &str) -> IResult<&str, SmlType> {
+    named_tuple_parser("Datatype", parse_string)
+        .map(|s| s.trim().to_string())
+        .map(SmlType::Datatype)
+        .parse(s)
+}
+
+fn parse_sml_type_intinf(s: &str) -> IResult<&str, SmlType> {
+    tagify_parser(tag("IntInf"))
+        .map(|_| SmlType::IntInf)
+        .parse(s)
+}
+
+fn parse_realsize(s: &str) -> IResult<&str, RealSize> {
+    alt((tag("r32"), tag("r64")))
+        .map(|sz| match sz {
+            "r32" => RealSize::R32,
+            "r64" => RealSize::R64,
+            _ => unreachable!(),
+        })
+        .parse(s)
+}
+
+impl FromStr for RealSize {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_realsize(s) {
+            Ok(("", sz)) => Ok(sz),
+            _ => Err(()),
+        }
+    }
+}
+
+fn parse_wordsize(s: &str) -> IResult<&str, WordSize> {
+    let (rest, sz) = alt((tag("w8"), tag("w16"), tag("w32"), tag("w64"))).parse(s)?;
+
+    match sz {
+        "w8" => Ok((rest, WordSize::W8)),
+        "w16" => Ok((rest, WordSize::W16)),
+        "w32" => Ok((rest, WordSize::W32)),
+        "w64" => Ok((rest, WordSize::W64)),
+        _ => unreachable!(),
+    }
+}
+
+impl FromStr for WordSize {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_wordsize(s) {
+            Ok(("", sz)) => Ok(sz),
+            _ => Err(()),
+        }
+    }
+}
+
+fn parse_sml_type_real(s: &str) -> IResult<&str, SmlType> {
+    named_tuple_parser("Real", parse_realsize)
+        .map(|sz| SmlType::Real(sz))
+        .parse(s)
+}
+
+fn parse_sml_type_ref(s: &str) -> IResult<&str, SmlType> {
+    named_tuple_parser("Ref", parse_sml_type_raw)
+        .map(|t| SmlType::Ref(Box::new(t)))
+        .parse(s)
+}
+
+fn parse_sml_type_thread(s: &str) -> IResult<&str, SmlType> {
+    tagify_parser(tag("Thread"))
+        .map(|_| SmlType::Thread)
+        .parse(s)
+}
+
+fn parse_sml_type_tuple(s: &str) -> IResult<&str, SmlType> {
+    preceded(
+        tagify_parser(tag("Tuple")),
+        paren_list_parser(parse_sml_type_raw),
     )
+    .map(|ts| SmlType::Tuple(ts))
+    .parse(s)
 }
 
-fn paren_list_parser<'a, O, F>(
-    item_parser: F,
-) -> impl Parser<&'a str, Output = Vec<O>, Error = Error<'a>>
-where
-    F: Parser<&'a str, Output = O, Error = Error<'a>>,
-{
-    surrounded_parser(
-        (tag("("), multispace0()),
-        separated_list0((multispace0(), tag(","), multispace0()), item_parser),
-        (multispace0(), tag(")")),
-    )
+fn parse_sml_type_vector(s: &str) -> IResult<&str, SmlType> {
+    named_tuple_parser("Vector", parse_sml_type_raw)
+        .map(|t| SmlType::Vector(Box::new(t)))
+        .parse(s)
 }
 
-fn parse_string<'a>(s: &'a str) -> IResult<&'a str, &'a str> {
-    delimited(tag("\""), take_till(|c| c == '\"'), tag("\"")).parse(s)
+fn parse_sml_type_weak(s: &str) -> IResult<&str, SmlType> {
+    named_tuple_parser("Weak", parse_sml_type_raw)
+        .map(|t| SmlType::Weak(Box::new(t)))
+        .parse(s)
 }
 
-fn parse_key_field<'a, V: 'a, FV>(
-    key: &'a str,
-    value_parser: FV,
-) -> impl Parser<&'a str, Output = V, Error = Error<'a>>
-where
-    FV: Parser<&'a str, Output = V, Error = Error<'a>>,
-{
+fn parse_sml_type_word(s: &str) -> IResult<&str, SmlType> {
+    named_tuple_parser("Word", parse_wordsize)
+        .map(|sz| SmlType::Word(sz))
+        .parse(s)
+}
+
+pub(crate) fn parse_sml_type_raw(s: &str) -> IResult<&str, SmlType> {
+    alt((
+        parse_sml_type_array,
+        parse_sml_type_cpointer,
+        parse_sml_type_datatype,
+        parse_sml_type_intinf,
+        parse_sml_type_real,
+        parse_sml_type_ref,
+        parse_sml_type_thread,
+        parse_sml_type_tuple,
+        parse_sml_type_vector,
+        parse_sml_type_weak,
+        parse_sml_type_word,
+    ))
+    .parse(s)
+}
+
+pub fn parse_sml_type(s: &str) -> IResult<&str, SmlType> {
     delimited(
-        (
-            preceded(multispace0(), tag(key)),
-            delimited(multispace0(), tag("="), multispace0()),
-        ),
-        value_parser,
-        alt((
-            (multispace0(), tag(",")).map(|_| ""),
-            take_until("}").map(|_| ""),
-        )),
+        tagify_parser(tag("(<")),
+        parse_sml_type_raw,
+        tagify_parser(tag(">)")),
     )
+    .parse(s)
 }
 
-/* TODO: USE A BETTER TYPE MODEL */
-fn parse_sml_type(s: &str) -> IResult<&str, SmlType> {
-    let (rest, t) = delimited(tag("(<"), take_until(">)"), tag(">)")).parse(s)?;
-    Ok((rest, t.trim().to_string()))
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SmlTypeParseErr;
+impl FromStr for SmlType {
+    type Err = SmlTypeParseErr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_sml_type(s) {
+            Ok(("", t)) => Ok(t),
+            _ => Err(SmlTypeParseErr),
+        }
+    }
 }
 
 fn parse_sml_types(s: &str) -> IResult<&str, Vec<SmlType>> {
@@ -131,7 +177,7 @@ fn parse_cons(s: &str) -> IResult<&str, (ConstructorId, Vec<SmlType>)> {
             map(word(), |id: &str| (id, vec![])),
             separated_pair(
                 take_till(|c: char| c == ','),
-                (multispace0(), tag(","), multispace0()),
+                (tag(","), multispace0()),
                 parse_sml_types,
             ),
         )),
@@ -139,7 +185,7 @@ fn parse_cons(s: &str) -> IResult<&str, (ConstructorId, Vec<SmlType>)> {
     )
     .parse(s)?;
 
-    Ok((rest, (constr_id.to_string(), arg_ts)))
+    Ok((rest, (constr_id.trim().into(), arg_ts)))
 }
 
 fn parse_datatype(s: &str) -> IResult<&str, Datatype> {
@@ -161,6 +207,19 @@ fn parse_datatype(s: &str) -> IResult<&str, Datatype> {
     ))
 }
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ParseDatatypeErr;
+impl FromStr for Datatype {
+    type Err = ParseDatatypeErr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_datatype(s) {
+            Ok(("", dt)) => Ok(dt),
+            _ => Err(ParseDatatypeErr),
+        }
+    }
+}
+
 fn parse_datatypes(s: &str) -> IResult<&str, HashMap<SmlType, Datatype>> {
     let (rest, dtypes) = paren_list_parser(parse_datatype).parse(s)?;
 
@@ -168,7 +227,9 @@ fn parse_datatypes(s: &str) -> IResult<&str, HashMap<SmlType, Datatype>> {
         rest,
         dtypes
             .into_iter()
-            .map(|dt| (dt.tycon.clone(), dt))
+            .map(
+                |dt| (SmlType::Datatype(dt.tycon.clone()), dt), /* TODO */
+            )
             .collect(),
     ))
 }
@@ -192,7 +253,7 @@ fn parse_exp_conapp(s: &str) -> IResult<&str, Exp> {
     let (rest, (con, args)) = named_object_parser(
         "exp::ConApp",
         (
-            parse_key_field("con", take_until(",")),
+            parse_key_field("con", parse_string),
             parse_key_field("args", parse_var_names),
         ),
     )
@@ -207,17 +268,17 @@ fn parse_exp_conapp(s: &str) -> IResult<&str, Exp> {
     ))
 }
 
-fn parse_const_csymbol(s: &str) -> IResult<&str, Exp> {
+fn parse_const_csymbol(s: &str) -> IResult<&str, Const> {
     todo!()
 }
 
-fn parse_const_intinf(s: &str) -> IResult<&str, Exp> {
+fn parse_const_intinf(s: &str) -> IResult<&str, Const> {
     todo!()
 }
 
-fn parse_const_null(s: &str) -> IResult<&str, Exp> {
-    let (rest, _) = tagify_parser((tag("exp::const::Null {"), multispace0(), tag("}"))).parse(s)?;
-    Ok((rest, Exp::Const(Const::Null)))
+fn parse_const_null(s: &str) -> IResult<&str, Const> {
+    let (rest, _) = tagify_parser((tag("const::Null {"), multispace0(), tag("}"))).parse(s)?;
+    Ok((rest, Const::Null))
 }
 
 fn parse_real(s: &str) -> IResult<&str, (f64, RealSize)> {
@@ -226,7 +287,7 @@ fn parse_real(s: &str) -> IResult<&str, (f64, RealSize)> {
             take_while1(|c: char| c.is_digit(10)),
             opt(preceded(tag("."), take_while1(|c: char| c.is_digit(10)))),
         ),
-        preceded(tag(":"), alt((tag("r32"), tag("r64")))),
+        preceded(tag(":"), parse_realsize),
     )
         .parse(s)?;
 
@@ -235,32 +296,16 @@ fn parse_real(s: &str) -> IResult<&str, (f64, RealSize)> {
         (int_part, None) => int_part.parse().unwrap(),
     };
 
-    match sz {
-        "r32" => Ok((rest, (r, RealSize::R32))),
-        "r64" => Ok((rest, (r, RealSize::R64))),
-        _ => unreachable!(),
-    }
+    Ok((rest, (r, sz)))
 }
 
-fn parse_const_real(s: &str) -> IResult<&str, Exp> {
+fn parse_const_real(s: &str) -> IResult<&str, Const> {
     let (rest, (r, sz)) =
-        named_object_parser("exp::const::Real", parse_key_field("const", parse_real)).parse(s)?;
-    Ok((rest, Exp::Const(Const::Real(sz, r))))
+        named_object_parser("const::Real", parse_key_field("const", parse_real)).parse(s)?;
+    Ok((rest, Const::Real(sz, r)))
 }
 
-fn parse_wordsize(s: &str) -> IResult<&str, WordSize> {
-    let (rest, sz) = alt((tag("w8"), tag("w16"), tag("w32"), tag("w64"))).parse(s)?;
-
-    match sz {
-        "w8" => Ok((rest, WordSize::W8)),
-        "w16" => Ok((rest, WordSize::W16)),
-        "w32" => Ok((rest, WordSize::W32)),
-        "w64" => Ok((rest, WordSize::W64)),
-        _ => unreachable!(),
-    }
-}
-
-fn parse_word(s: &str) -> IResult<&str, (u64, WordSize)> {
+pub fn parse_word(s: &str) -> IResult<&str, (u64, WordSize)> {
     let (rest, (w, sz)) = preceded(
         tag("0x"),
         (
@@ -274,32 +319,50 @@ fn parse_word(s: &str) -> IResult<&str, (u64, WordSize)> {
     Ok((rest, (w, sz)))
 }
 
-fn parse_const_word(s: &str) -> IResult<&str, Exp> {
+fn parse_const_word(s: &str) -> IResult<&str, Const> {
     let (rest, (w, sz)) =
-        named_object_parser("exp::const::Word", parse_key_field("const", parse_word)).parse(s)?;
-    Ok((rest, Exp::Const(Const::Word(sz, w))))
+        named_object_parser("const::Word", parse_key_field("const", parse_word)).parse(s)?;
+    Ok((rest, Const::Word(sz, w)))
 }
 
-fn parse_const_wordvector(s: &str) -> IResult<&str, Exp> {
-    let (rest, wv) = named_object_parser(
-        "exp::const::WordVector",
-        parse_key_field("const", parse_string),
-    )
-    .parse(s)?;
-    Ok((rest, Exp::Const(Const::WordVector(wv.to_string()))))
+fn parse_const_wordvector(s: &str) -> IResult<&str, Const> {
+    let (rest, wv) =
+        named_object_parser("const::WordVector", parse_key_field("const", parse_string))
+            .parse(s)?;
+    Ok((rest, Const::WordVector(wv.to_string())))
 }
 
-fn parse_exp_const(s: &str) -> IResult<&str, Exp> {
-    let (rest, exp) = alt((
-        // TODO: parse_const_csymbol,
-        // TODO: parse_const_intinf,
+pub fn parse_const(s: &str) -> IResult<&str, Const> {
+    alt((
+        // parse_const_csymbol,
+        // parse_const_intinf,
         parse_const_null,
         parse_const_real,
         parse_const_word,
         parse_const_wordvector,
     ))
-    .parse(s)?;
-    Ok((rest, exp))
+    .parse(s)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ParseConstErr;
+impl FromStr for Const {
+    type Err = ParseConstErr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_const(s) {
+            Ok(("", c)) => Ok(c),
+            _ => Err(ParseConstErr),
+        }
+    }
+}
+
+pub fn parse_exp_const(s: &str) -> IResult<&str, Exp> {
+    named_object_parser(
+        "exp::Const",
+        parse_key_field("const", parse_const).map(Exp::Const),
+    )
+    .parse(s)
 }
 
 fn parse_exp_profile(s: &str) -> IResult<&str, Exp> {
@@ -351,6 +414,17 @@ fn parse_cfunction_convention(s: &str) -> IResult<&str, CFunctionConvention> {
     }
 }
 
+impl FromStr for CFunctionConvention {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_cfunction_convention(s) {
+            Ok(("", c)) => Ok(c),
+            _ => Err(()),
+        }
+    }
+}
+
 fn parse_cfunction_kind(s: &str) -> IResult<&str, CFunctionKind> {
     let (rest, kind) = alt((tag("Impure"), tag("Pure"), tag("Runtime"))).parse(s)?;
 
@@ -359,6 +433,17 @@ fn parse_cfunction_kind(s: &str) -> IResult<&str, CFunctionKind> {
         "Pure" => Ok((rest, CFunctionKind::Pure)),
         "Runtime" => Ok((rest, CFunctionKind::Runtime)),
         _ => unreachable!(),
+    }
+}
+
+impl FromStr for CFunctionKind {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_cfunction_kind(s) {
+            Ok(("", k)) => Ok(k),
+            _ => Err(()),
+        }
     }
 }
 
@@ -373,12 +458,67 @@ fn parse_cfunction_symbol_scope(s: &str) -> IResult<&str, CFunctionSymbolScope> 
     }
 }
 
-fn parse_cfunction_prototype(s: &str) -> IResult<&str, (Vec<SmlType>, Option<SmlType>)> {
+impl FromStr for CFunctionSymbolScope {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_cfunction_symbol_scope(s) {
+            Ok(("", s)) => Ok(s),
+            _ => Err(()),
+        }
+    }
+}
+
+fn parse_ctype_raw(s: &str) -> IResult<&str, CType> {
+    alt((
+        tag("CPointer").map(|_| CType::CPointer),
+        tag("Int8").map(|_| CType::Int8),
+        tag("Int16").map(|_| CType::Int16),
+        tag("Int32").map(|_| CType::Int32),
+        tag("Int64").map(|_| CType::Int64),
+        tag("Objptr").map(|_| CType::Objptr),
+        tag("Real32").map(|_| CType::Real32),
+        tag("Real64").map(|_| CType::Real64),
+        tag("Word8").map(|_| CType::Word8),
+        tag("Word16").map(|_| CType::Word16),
+        tag("Word32").map(|_| CType::Word32),
+        tag("Word64").map(|_| CType::Word64),
+    ))
+    .parse(s)
+}
+
+fn parse_ctype(s: &str) -> IResult<&str, CType> {
+    delimited(
+        tagify_parser(tag("(<")),
+        parse_ctype_raw,
+        tagify_parser(tag(">)")),
+    )
+    .parse(s)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ParseCTypeErr;
+impl FromStr for CType {
+    type Err = ParseCTypeErr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_ctype(s) {
+            Ok(("", t)) => Ok(t),
+            _ => Err(ParseCTypeErr),
+        }
+    }
+}
+
+fn parse_ctypes(s: &str) -> IResult<&str, Vec<CType>> {
+    paren_list_parser(parse_ctype).parse(s)
+}
+
+fn parse_cfunction_prototype(s: &str) -> IResult<&str, (Vec<CType>, Option<CType>)> {
     let (rest, (args, ret)) = named_object_parser(
         "prototype",
         (
-            parse_key_field("args", parse_sml_types),
-            parse_key_field("res", option_parser(parse_sml_type)),
+            parse_key_field("args", parse_ctypes),
+            parse_key_field("res", option_parser(parse_ctype)),
         ),
     )
     .parse(s)?;
@@ -399,6 +539,17 @@ fn parse_cfunction_target(s: &str) -> IResult<&str, CFunctionTarget> {
         )),
     )
     .parse(s)
+}
+
+impl FromStr for CFunctionTarget {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_cfunction_target(s) {
+            Ok(("", t)) => Ok(t),
+            _ => Err(()),
+        }
+    }
 }
 
 fn parse_cfunction(s: &str) -> IResult<&str, PrimPrimitive> {
@@ -451,6 +602,17 @@ fn parse_prim_kind(s: &str) -> IResult<&str, PrimKind> {
     }
 }
 
+impl FromStr for PrimKind {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_prim_kind(s) {
+            Ok(("", k)) => Ok(k),
+            _ => Err(()),
+        }
+    }
+}
+
 fn parse_prim(s: &str) -> IResult<&str, Prim> {
     let (rest, (p, k)) = named_object_parser(
         "primitive",
@@ -459,8 +621,8 @@ fn parse_prim(s: &str) -> IResult<&str, Prim> {
                 "prim",
                 alt((
                     parse_cfunction,
-                    map(parse_string, |id: &str| {
-                        PrimPrimitive::SmlPrim(id.trim().to_string())
+                    map(parse_string, |id | {
+                        PrimPrimitive::SmlPrim(id.trim().into())
                     }),
                 )),
             ),
@@ -470,6 +632,18 @@ fn parse_prim(s: &str) -> IResult<&str, Prim> {
     .parse(s)?;
 
     Ok((rest, Prim { prim: p, kind: k }))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ParsePrimErr;
+impl FromStr for Prim {
+    type Err = ParsePrimErr;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_prim(s) {
+            Ok(("", p)) => Ok(p),
+            _ => Err(ParsePrimErr),
+        }
+    }
 }
 
 fn parse_exp_primapp(s: &str) -> IResult<&str, Exp> {
@@ -507,6 +681,19 @@ fn parse_exp(s: &str) -> IResult<&str, Exp> {
     Ok((rest, exp))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ParseExpErr;
+impl FromStr for Exp {
+    type Err = ParseExpErr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_exp(s) {
+            Ok(("", e)) => Ok(e),
+            _ => Err(ParseExpErr),
+        }
+    }
+}
+
 fn parse_statement(s: &str) -> IResult<&str, Statement> {
     let (rest, (var, ty, exp)) = named_object_parser(
         "statement",
@@ -521,20 +708,23 @@ fn parse_statement(s: &str) -> IResult<&str, Statement> {
     Ok((rest, Statement { var, ty, exp: exp }))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ParseStatementErr;
+impl FromStr for Statement {
+    type Err = ParseStatementErr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_statement(s) {
+            Ok(("", stmt)) => Ok(stmt),
+            _ => Err(ParseStatementErr),
+        }
+    }
+}
+
 fn parse_globals(s: &str) -> IResult<&str, Vec<Statement>> {
     let (rest, globals) = paren_list_parser(parse_statement).parse(s)?;
 
     Ok((rest, globals))
-}
-
-fn option_parser<'a, O, F>(inner: F) -> impl Parser<&'a str, Output = Option<O>, Error = Error<'a>>
-where
-    F: Parser<&'a str, Output = O, Error = Error<'a>>,
-{
-    alt((
-        map(preceded((tag("Some"), multispace0()), inner), |v| Some(v)),
-        map(tag("None"), |_| None),
-    ))
 }
 
 fn parse_transfer_bug(s: &str) -> IResult<&str, Transfer> {
@@ -576,6 +766,20 @@ fn parse_transfer_call_non_tail_handler(s: &str) -> IResult<&str, Handler> {
     Ok((rest, h))
 }
 
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ParseHandlerErr;
+impl FromStr for Handler {
+    type Err = ParseHandlerErr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_transfer_call_non_tail_handler(s) {
+            Ok(("", h)) => Ok(h),
+            _ => Err(ParseHandlerErr),
+        }
+    }
+}
+
 fn parse_transfer_call_non_tail(s: &str) -> IResult<&str, Transfer> {
     let (rest, (func, args, cont_id, handler)) = named_object_parser(
         "transfer::call::NonTail",
@@ -593,7 +797,7 @@ fn parse_transfer_call_non_tail(s: &str) -> IResult<&str, Transfer> {
             func,
             args,
             ret: Return::NonTail {
-                cont_id: cont_id.to_string(),
+                cont: cont_id.to_string(),
                 handler,
             },
         },
@@ -639,12 +843,16 @@ fn parse_transfer_case_con_con(s: &str) -> IResult<&str, (ConstructorId, Label)>
     .parse(s)
 }
 
+fn parse_cases_con(s: &str) -> IResult<&str, Cases> {
+    paren_list_parser(parse_transfer_case_con_con).map(Cases::Con).parse(s)
+}
+
 fn parse_transfer_case_con(s: &str) -> IResult<&str, Transfer> {
     let (rest, (test, cases, default)) = named_object_parser(
         "transfer::case::Con",
         (
             parse_key_field("test", parse_var_name),
-            parse_key_field("cases", paren_list_parser(parse_transfer_case_con_con)),
+            parse_key_field("cases", parse_cases_con),
             opt(map(parse_key_field("default", parse_var_name), |l| {
                 l.to_string()
             })),
@@ -656,7 +864,7 @@ fn parse_transfer_case_con(s: &str) -> IResult<&str, Transfer> {
         rest,
         Transfer::Case {
             test,
-            cases: Cases::Con(cases),
+            cases,
             default,
         },
     ))
@@ -666,13 +874,42 @@ fn parse_transfer_case_word_con(s: &str) -> IResult<&str, ((u64, WordSize), Labe
     separated_pair(parse_word, tagify_parser(tag("=>")), parse_var_name).parse(s)
 }
 
+fn parse_cases_word(s: &str) -> IResult<&str, Cases> {
+    let (rest, cases) = paren_list_parser(parse_transfer_case_word_con).parse(s)?;
+    
+    assert!(cases.iter().map(|((_, sz), _)| sz.clone()).collect::<HashSet<WordSize>>().len() <= 1);
+
+    if let Some(((_, ws), _)) = cases.first() {
+        Ok((rest, Cases::Word(ws.clone(), cases.into_iter().map(|(w, l)| (w.0, l)).collect())))
+    } else {
+        Ok((rest, Cases::Word(WordSize::W8, vec![])))
+    }
+}
+
+fn parse_cases(s: &str) -> IResult<&str, Cases> {
+    alt((parse_cases_word, parse_cases_con)).parse(s)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ParseCasesErr;
+impl FromStr for Cases {
+    type Err = ParseCasesErr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_cases(s) {
+            Ok(("", c)) => Ok(c),
+            _ => Err(ParseCasesErr),
+        }
+    }
+}
+
 fn parse_transfer_case_word(s: &str) -> IResult<&str, Transfer> {
     let (rest, (test, ws, cases, default)) = named_object_parser(
         "transfer::case::Word",
         (
             parse_key_field("test", parse_var_name),
             parse_key_field("size", parse_wordsize),
-            parse_key_field("cases", paren_list_parser(parse_transfer_case_word_con)),
+            parse_key_field("cases", parse_cases_word),
             opt(map(parse_key_field("default", parse_var_name), |l| {
                 l.to_string()
             })),
@@ -680,13 +917,17 @@ fn parse_transfer_case_word(s: &str) -> IResult<&str, Transfer> {
     )
     .parse(s)?;
 
-    assert!(cases.iter().all(|((_, sz), _)| *sz == ws));
+    let Cases::Word(ws_cases, _) = cases.clone() else {
+        unreachable!()
+    };
+
+    assert_eq!(ws, ws_cases);
 
     Ok((
         rest,
         Transfer::Case {
             test,
-            cases: Cases::Word(ws, cases.into_iter().map(|(w, l)| (w.0, l)).collect()),
+            cases,
             default,
         },
     ))
@@ -743,6 +984,19 @@ fn parse_transfer(s: &str) -> IResult<&str, Transfer> {
     .parse(s)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ParseTransferErr;
+impl FromStr for Transfer {
+    type Err = ParseTransferErr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_transfer(s) {
+            Ok(("", t)) => Ok(t),
+            _ => Err(ParseTransferErr),
+        }
+    }
+}
+
 fn parse_block(s: &str) -> IResult<&str, Block> {
     let (rest, (label, args, statements, transfer)) = named_object_parser(
         "block",
@@ -766,11 +1020,36 @@ fn parse_block(s: &str) -> IResult<&str, Block> {
     ))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ParseBlockErr;
+impl FromStr for Block {
+    type Err = ParseBlockErr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_block(s) {
+            Ok(("", b)) => Ok(b),
+            _ => Err(ParseBlockErr),
+        }
+    }
+}
+
 fn parse_typed_var(s: &str) -> IResult<&str, Var> {
-    let (rest, (name, var_t)) =
+    let (rest, (name, ty)) =
         separated_pair(parse_var_name, tagify_parser(tag(":")), parse_sml_type).parse(s)?;
 
-    Ok((rest, Var { name, var_t }))
+    Ok((rest, Var { name, ty }))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TypedVarParseErr;
+impl FromStr for Var {
+    type Err = TypedVarParseErr;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_typed_var(s) {
+            Ok(("", v)) => Ok(v),
+            _ => Err(TypedVarParseErr),
+        }
+    }
 }
 
 fn parse_function(s: &str) -> IResult<&str, Function> {
@@ -802,6 +1081,19 @@ fn parse_function(s: &str) -> IResult<&str, Function> {
     ))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ParseFunctionErr;
+impl FromStr for Function {
+    type Err = ParseFunctionErr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_function(s) {
+            Ok(("", f)) => Ok(f),
+            _ => Err(ParseFunctionErr),
+        }
+    }
+}
+
 fn parse_main(s: &str) -> IResult<&str, FunctionId> {
     parse_var_name(s)
 }
@@ -829,6 +1121,20 @@ pub fn parse_ssa(s: &str) -> IResult<&str, MltonSsa> {
     ))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ParseErrSsa;
+
+impl std::str::FromStr for MltonSsa {
+    type Err = ParseErrSsa;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_ssa(s) {
+            Ok(("", ssa)) => Ok(ssa),
+            _ => Err(ParseErrSsa),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -841,96 +1147,95 @@ mod test {
     }
 
     #[test]
-    fn test_parse_string() {
-        let s = r#""hello""#;
-        let (_rest, res) = parse_string(s).unwrap();
-        assert_eq!(res, "hello");
+    fn test_parse_sml_type_raw() {
+        let s = r#"Array(Word(w8))"#;
+        let (rest, t) = parse_sml_type_raw(s).unwrap();
+        assert_eq!(rest, "");
+        assert_eq!(t, SmlType::Array(Box::new(SmlType::Word(WordSize::W8))));
 
-        let s = r#""","#;
-        let (rest, res) = parse_string(s).unwrap();
-        assert_eq!(rest, ",");
-        assert_eq!(res, "");
-    }
+        let s = r#"CPointer"#;
+        let (rest, t) = parse_sml_type_raw(s).unwrap();
+        assert_eq!(rest, "");
+        assert_eq!(t, SmlType::CPointer);
 
-    #[test]
-    fn test_tafify_parser() {
-        let s = "  hello  ";
-        let (_rest, res) = tagify_parser(tag("hello")).parse(s).unwrap();
-        assert_eq!(res, "hello");
+        let s = r#"Datatype("list_0")"#;
+        let (rest, t) = parse_sml_type_raw(s).unwrap();
+        assert_eq!(rest, "");
+        assert_eq!(t, SmlType::Datatype("list_0".to_string()));
 
-        let s = "  )  ";
-        let (_rest, res) = tagify_parser(tag(")")).parse(s).unwrap();
-        assert_eq!(res, ")");
-    }
+        let s = r#"IntInf"#;
+        let (rest, t) = parse_sml_type_raw(s).unwrap();
+        assert_eq!(rest, "");
+        assert_eq!(t, SmlType::IntInf);
 
-    #[test]
-    fn test_paren_list_parser() {
-        let s = "(x, y, z)";
-        let (_rest, res) = paren_list_parser(word()).parse(s).unwrap();
-        assert_eq!(res, vec!["x", "y", "z"]);
+        let s = r#"Real(r64)"#;
+        let (rest, t) = parse_sml_type_raw(s).unwrap();
+        assert_eq!(rest, "");
+        assert_eq!(t, SmlType::Real(RealSize::R64));
 
-        let s = "( x , y , z )";
-        let (_rest, res) = paren_list_parser(word()).parse(s).unwrap();
-        assert_eq!(res, vec!["x", "y", "z"]);
+        let s = r#"Ref(Datatype("list_0"))"#;
+        let (rest, t) = parse_sml_type_raw(s).unwrap();
+        assert_eq!(rest, "");
+        assert_eq!(
+            t,
+            SmlType::Ref(Box::new(SmlType::Datatype("list_0".to_string())))
+        );
 
-        let s = "(x)";
-        let (_rest, res) = paren_list_parser(word()).parse(s).unwrap();
-        assert_eq!(res, vec!["x"]);
+        let s = r#"Thread"#;
+        let (rest, t) = parse_sml_type_raw(s).unwrap();
+        assert_eq!(rest, "");
+        assert_eq!(t, SmlType::Thread);
 
-        let s = "()";
-        let (_rest, res) = paren_list_parser(word()).parse(s).unwrap();
-        assert_eq!(res, Vec::<&str>::new());
-    }
+        let s = r#"Tuple(Word(w8), Word(w16))"#;
+        let (rest, t) = parse_sml_type_raw(s).unwrap();
+        assert_eq!(rest, "");
+        assert_eq!(
+            t,
+            SmlType::Tuple(vec![
+                SmlType::Word(WordSize::W8),
+                SmlType::Word(WordSize::W16)
+            ])
+        );
 
-    #[test]
-    fn test_parse_key_field() {
-        let s = r#"key = "x","#;
-        let (_rest, v) = parse_key_field("key", parse_string).parse(s).unwrap();
-        assert_eq!(v, "x");
-
-        let s = r#"key
-            =
-            "x"
-            ,"#;
-        let (_rest, v) = parse_key_field("key", parse_string).parse(s).unwrap();
-        assert_eq!(v, "x");
+        let s = r#"Vector(Word(w8))"#;
+        let (rest, t) = parse_sml_type_raw(s).unwrap();
+        assert_eq!(rest, "");
+        assert_eq!(t, SmlType::Vector(Box::new(SmlType::Word(WordSize::W8))));
     }
 
     #[test]
     fn test_parse_sml_type() {
-        let s = "(< (word8) vector >)";
-        let ret = parse_sml_type(s);
-        let (_rest, t) = ret.unwrap();
-        assert_eq!(t, "(word8) vector".to_string());
-
-        let s = "( (< word8 >), (< (word8, word8) tuple >) )";
-        let ret = parse_sml_types.parse(s);
-        let (_rest, t) = ret.unwrap();
-        assert_eq!(
-            t,
-            vec!["word8".to_string(), "(word8, word8) tuple".to_string()]
-        );
+        let s = r#"(< Array(Word(w8)) >)"#;
+        let (rest, t) = parse_sml_type(s).unwrap();
+        assert_eq!(rest, "");
+        assert_eq!(t, SmlType::Array(Box::new(SmlType::Word(WordSize::W8))));
     }
 
     #[test]
     fn test_parse_sml_types() {
-        let s = r#"( (< list_0 >), (< (word8, word8) tuple >) )"#;
+        let s = r#"( (< Datatype( "list_0" ) >), (< Tuple (Word(w8), Word( w8 )) >) )"#;
         let (rest, ts) = parse_sml_types(s).unwrap();
         assert_eq!(rest, "");
         assert_eq!(ts.len(), 2);
-        assert_eq!(ts[0], "list_0".to_string());
-        assert_eq!(ts[1], "(word8, word8) tuple".to_string());
+        assert_eq!(ts[0], SmlType::Datatype("list_0".to_string()));
+        assert_eq!(
+            ts[1],
+            SmlType::Tuple(vec![
+                SmlType::Word(WordSize::W8),
+                SmlType::Word(WordSize::W8)
+            ])
+        );
     }
 
     #[test]
     fn test_parse_cons() {
-        let s = r#"( ::_0, ( (< list_0 >), (< (word8, word8) tuple >) ))"#;
+        let s = r#"( ::_0, ((< Datatype( "list_0" ) >),
+                                                  (< Tuple (Word( w8 ),
+                                                            Word( w8 )) >)) )"#;
         let (rest, (constr_id, arg_ts)) = parse_cons(s).unwrap();
         assert_eq!(constr_id, "::_0".to_string());
         assert_eq!(rest, "");
         assert_eq!(arg_ts.len(), 2);
-        assert_eq!(arg_ts[0], "list_0".to_string());
-        assert_eq!(arg_ts[1], "(word8, word8) tuple".to_string());
 
         let s = r#"( nil_1 )"#;
         let (rest, (constr_id, arg_ts)) = parse_cons(s).unwrap();
@@ -941,15 +1246,32 @@ mod test {
 
     #[test]
     fn test_parse_datatype() {
-        let s = r#"datatype {
-               tycon = "list_0", 
-               cons = 
-               (( ::_0, ((< list_0 >), (< (word8, word8) tuple >)) ), ( nil_1 ))
-             ,
-             }"#;
+        let s = r#"
+        datatype {tycon = "list_0",
+                  cons = (( ::_0, ((< Datatype( "list_0" ) >),
+                                   (< Tuple (Word( w8 ),
+                                             Word( w8 )) >)) ),
+                          ( nil_1 ))}
+        "#;
 
         let (rest, dt) = parse_datatype(s).unwrap();
-        assert_eq!(rest, "");
+        assert_eq!(rest.trim(), "");
+        assert_eq!(dt.tycon, "list_0".to_string());
+        assert_eq!(dt.constrs.len(), 2);
+        assert_eq!(dt.constrs[0].0, "::_0".to_string());
+        assert_eq!(dt.constrs[0].1.len(), 2);
+        assert_eq!(dt.constrs[1].0, "nil_1".to_string());
+        assert_eq!(dt.constrs[1].1.len(), 0);
+
+        let s = r#"
+        datatype {
+  tycon = "list_0",
+  cons = ( ( ::_0, ( (< Datatype ( "list_0" ) >), (< Tuple ( Word ( w8 ), Word ( w8 ) ) >) ) ), ( nil_1, (  ) ) )
+}
+        "#;
+
+        let (rest, dt) = parse_datatype(s).unwrap();
+        assert_eq!(rest.trim(), "");
         assert_eq!(dt.tycon, "list_0".to_string());
         assert_eq!(dt.constrs.len(), 2);
         assert_eq!(dt.constrs[0].0, "::_0".to_string());
@@ -960,30 +1282,30 @@ mod test {
 
     #[test]
     fn test_parse_datatypes() {
-        let s = r#"(datatype{tycon = "list_4",  cons =  (( dummy_0 )) , },
-             datatype {
-               tycon = "list_3",  cons =  (( nil_0 ), ( ::_2, ((< list_3 >)) ))
-             ,
-             },
-             datatype {
-               tycon = "list_2", 
-               cons = 
-               (( nil_2 ), ( ::_1, ((< list_2 >), (< (word8) vector >)) ))
-             ,
-             },
-             datatype {tycon = "list_1",  cons =  (( nil_3 )) , },
-             datatype {
-               tycon = "list_0", 
-               cons = 
-               (( ::_0, ((< list_0 >), (< (word8, word8) tuple >)) ), ( nil_1 ))
-             ,
-             },
-             datatype{tycon = "bool",  cons =  (( true ), ( false )) , })"#;
+        let s = r#"
+        (datatype {tycon = "list_4", cons = (( dummy_0 ))},
+         datatype {tycon = "list_3",
+                   cons = (( nil_0 ),
+                           ( ::_2, ((< Datatype( "list_3" ) >)) ))},
+         datatype {tycon = "list_2",
+                   cons = (( nil_2 ),
+                           ( ::_1, ((< Datatype( "list_2" ) >),
+                                    (< Vector( Word( w8 ) ) >)) ))},
+         datatype {tycon = "list_1", cons = (( nil_3 ))},
+         datatype {tycon = "list_0",
+                   cons = (( ::_0, ((< Datatype( "list_0" ) >),
+                                    (< Tuple (Word( w8 ),
+                                              Word( w8 )) >)) ),
+                           ( nil_1 ))},
+         datatype {tycon = "bool", cons = (( true ), ( false ))})
+        "#;
         let (rest, dts) = parse_datatypes(s).unwrap();
-        assert_eq!(rest, "");
+        assert_eq!(rest.trim(), "");
         assert_eq!(dts.len(), 6);
-        assert!(dts.contains_key("bool"));
-        assert_eq!(dts.get(&"bool".to_string()).unwrap().constrs.len(), 2);
+
+        let key = SmlType::Datatype("list_0".to_string());
+        assert!(dts.contains_key(&key));
+        assert_eq!(dts.get(&key).unwrap().constrs.len(), 2);
     }
 
     #[test]
@@ -1018,7 +1340,7 @@ mod test {
     #[test]
     fn test_parse_exp_conapp() {
         let s = r#"exp::ConApp {
-                                   con = ::_1,
+                                   con = "::_1",
                                    args = 
                                    (global_43, x_49) ,
                                  }"#;
@@ -1035,13 +1357,10 @@ mod test {
 
     #[test]
     fn test_parse_const_wordvector() {
-        let s = r#"exp::const::WordVector { const = "Overflow"}"#;
+        let s = r#"const::WordVector { const = "Overflow"}"#;
         let (rest, exp) = parse_const_wordvector(s).unwrap();
         assert_eq!(rest, "");
-        assert_eq!(
-            exp,
-            Exp::Const(crate::ssa::Const::WordVector("Overflow".to_string()))
-        );
+        assert_eq!(exp, Const::WordVector("Overflow".to_string()));
     }
 
     #[test]
@@ -1069,46 +1388,46 @@ mod test {
 
     #[test]
     fn test_parse_const_word() {
-        let s = r#"exp::const::Word { const = 0x000000000000000A:w64 }"#;
+        let s = r#"const::Word { const = 0x000000000000000A:w64 }"#;
         let (rest, exp) = parse_const_word(s).unwrap();
         assert_eq!(rest, "");
-        assert_eq!(exp, Exp::Const(Const::Word(WordSize::W64, 10)));
+        assert_eq!(exp, Const::Word(WordSize::W64, 10));
     }
 
     #[test]
     fn test_parse_const_real() {
-        let s = r#"exp::const::Real { const = 3.14:r32 }"#;
+        let s = r#"const::Real { const = 3.14:r32 }"#;
         let (rest, exp) = parse_const_real(s).unwrap();
         assert_eq!(rest, "");
-        assert_eq!(exp, Exp::Const(Const::Real(RealSize::R32, 3.14)));
+        assert_eq!(exp, Const::Real(RealSize::R32, 3.14));
     }
 
     #[test]
     fn test_parse_const_null() {
-        let s = r#"exp::const::Null {}"#;
+        let s = r#"const::Null {}"#;
         let (rest, exp) = parse_const_null(s).unwrap();
         assert_eq!(rest, "");
-        assert_eq!(exp, Exp::Const(Const::Null));
+        assert_eq!(exp, Const::Null);
     }
 
     #[test]
     fn test_parse_exp_const() {
-        let s = r#"exp::const::Null {}"#;
+        let s = r#"exp::Const { const = const::Null {} }"#;
         let (rest, exp) = parse_exp_const(s).unwrap();
         assert_eq!(rest, "");
         assert_eq!(exp, Exp::Const(Const::Null));
 
-        let s = r#"exp::const::Word { const = 0x000000000000000A:w64 }"#;
+        let s = r#"exp::Const { const = const::Word { const = 0x000000000000000A:w64 } }"#;
         let (rest, exp) = parse_exp_const(s).unwrap();
         assert_eq!(rest, "");
         assert_eq!(exp, Exp::Const(Const::Word(WordSize::W64, 10)));
 
-        let s = r#"exp::const::Real { const = 3.14:r32 }"#;
+        let s = r#"exp::Const { const = const::Real { const = 3.14:r32 } }"#;
         let (rest, exp) = parse_exp_const(s).unwrap();
         assert_eq!(rest, "");
         assert_eq!(exp, Exp::Const(Const::Real(RealSize::R32, 3.14)));
 
-        let s = r#"exp::const::WordVector { const = "Overflow"}"#;
+        let s = r#"exp::Const { const = const::WordVector { const = "Overflow"} }"#;
         let (rest, exp) = parse_exp_const(s).unwrap();
         assert_eq!(rest, "");
         assert_eq!(
@@ -1186,13 +1505,26 @@ mod test {
     }
 
     #[test]
+    fn test_parse_ctype() {
+        let s = r#"(< Objptr >)"#;
+        let (rest, ty) = parse_ctype(s).unwrap();
+        assert_eq!(rest, "");
+        assert_eq!(ty, CType::Objptr);
+
+        let s = r#"(< Word64 >)"#;
+        let (rest, ty) = parse_ctype(s).unwrap();
+        assert_eq!(rest, "");
+        assert_eq!(ty, CType::Word64);
+    }
+
+    #[test]
     fn test_parse_cfunction_prototype() {
         let s = r#"prototype {args = ( (< Objptr >) ),
                                             res = None},"#;
         let (rest, (args, ret)) = parse_cfunction_prototype(s).unwrap();
         assert_eq!(rest, ",");
         assert_eq!(args.len(), 1);
-        assert_eq!(args[0], "Objptr".to_string());
+        assert_eq!(args[0], CType::Objptr);
         assert_eq!(ret, None);
     }
 
@@ -1212,27 +1544,28 @@ mod test {
     #[test]
     fn test_parse_cfunction() {
         let s = r#"
-        CFunction {args = ((< (word8) vector >)),
+        CFunction {args = ((< Vector( Word( w8 ) ) >)),
                    convention = cdecl,
                    inline = false,
                    kind = Impure,
                    prototype = prototype {args = ((< Objptr >)),
                                           res = None},
-                   return = (< unit >),
+                   return = (< Tuple () >),
                    symbolScope = private,
                    target = target {type = Direct,
-                                    name = "Stdio_print"}},"#;
+                                    name = "Stdio_print"}},
+        "#;
         let (rest, prim) = parse_cfunction(s).unwrap();
-        assert_eq!(rest, ",");
+        assert_eq!(rest.trim(), ",");
         assert_eq!(
             prim,
             PrimPrimitive::CFunction {
-                args: vec!["(word8) vector".to_string()],
+                args: vec![SmlType::Vector(Box::new(SmlType::Word(WordSize::W8)))],
                 convention: CFunctionConvention::Cdecl,
                 inline: false,
                 kind: CFunctionKind::Impure,
-                prototype: (vec!["Objptr".to_string()], None),
-                ret: "unit".to_string(),
+                prototype: (vec![CType::Objptr], None),
+                ret: SmlType::Tuple(vec![]),
                 symbol_scope: CFunctionSymbolScope::Private,
                 target: CFunctionTarget::Direct("Stdio_print".to_string()),
             }
@@ -1272,29 +1605,30 @@ mod test {
         assert_eq!(prim.prim, PrimPrimitive::SmlPrim("Ref_ref".to_string()));
         assert_eq!(prim.kind, PrimKind::DependsOnState);
 
-        let s = r#"primitive {prim = CFunction {args = ((< (word8) vector >)),
-                                                          convention = cdecl,
-                                                          inline = false,
-                                                          kind = Impure,
-                                                          prototype = prototype {args = ((< Objptr >)),
-                                                                                 res = None},
-                                                          return = (< unit >),
-                                                          symbolScope = private,
-                                                          target = target {type = Direct,
-                                                                           name = "Stdio_print"}},
-                                        kind = DependsOnState,
-                                      }"#;
+        let s = r#"
+        primitive {prim = CFunction {args = ((< Vector( Word( w8 ) ) >)),
+                                     convention = cdecl,
+                                     inline = false,
+                                     kind = Impure,
+                                     prototype = prototype {args = ((< Objptr >)),
+                                                            res = None},
+                                     return = (< Tuple () >),
+                                     symbolScope = private,
+                                     target = target {type = Direct,
+                                                      name = "Stdio_print"}},
+                   kind = DependsOnState},
+        "#;
         let (rest, prim) = parse_prim(s).unwrap();
-        assert_eq!(rest, "");
+        assert_eq!(rest.trim(), ",");
         assert_eq!(
             prim.prim,
             PrimPrimitive::CFunction {
-                args: vec!["(word8) vector".to_string()],
+                args: vec![SmlType::Vector(Box::new(SmlType::Word(WordSize::W8)))],
                 convention: CFunctionConvention::Cdecl,
                 inline: false,
                 kind: CFunctionKind::Impure,
-                prototype: (vec!["Objptr".to_string()], None),
-                ret: "unit".to_string(),
+                prototype: (vec![CType::Objptr], None),
+                ret: SmlType::Tuple(vec![]),
                 symbol_scope: CFunctionSymbolScope::Private,
                 target: CFunctionTarget::Direct("Stdio_print".to_string()),
             }
@@ -1305,31 +1639,32 @@ mod test {
     #[test]
     fn test_parse_exp_primapp() {
         let s = r#"
-        exp::PrimApp {prim = primitive {prim = CFunction {args = ((< (word8) vector >)),
+        exp::PrimApp {prim = primitive {prim = CFunction {args = ((< Vector( Word( w8 ) ) >)),
                                                           convention = cdecl,
                                                           inline = false,
                                                           kind = Impure,
                                                           prototype = prototype {args = ((< Objptr >)),
                                                                                  res = None},
-                                                          return = (< unit >),
+                                                          return = (< Tuple () >),
                                                           symbolScope = private,
                                                           target = target {type = Direct,
                                                                            name = "Stdio_print"}},
                                         kind = DependsOnState},
-                      args = (global_37)}},"#;
+                      args = (global_37)}},
+        "#;
         let (rest, exp) = parse_exp_primapp(s).unwrap();
-        assert_eq!(rest, "},");
+        assert_eq!(rest.trim(), "},");
         assert_eq!(
             exp,
             Exp::PrimApp {
                 prim: Prim {
                     prim: PrimPrimitive::CFunction {
-                        args: vec!["(word8) vector".to_string()],
+                        args: vec![SmlType::Vector(Box::new(SmlType::Word(WordSize::W8)))],
                         convention: CFunctionConvention::Cdecl,
                         inline: false,
                         kind: CFunctionKind::Impure,
-                        prototype: (vec!["Objptr".to_string()], None),
-                        ret: "unit".to_string(),
+                        prototype: (vec![CType::Objptr], None),
+                        ret: SmlType::Tuple(vec![]),
                         symbol_scope: CFunctionSymbolScope::Private,
                         target: CFunctionTarget::Direct("Stdio_print".to_string()),
                     },
@@ -1384,7 +1719,7 @@ mod test {
         );
 
         let s = r#"exp::ConApp {
-                                   con = ::_1,
+                                   con = "::_1",
                                    args = 
                                    (global_43, x_49) ,
                                  }"#;
@@ -1398,7 +1733,7 @@ mod test {
             }
         );
 
-        let s = r#"exp::const::Null {}"#;
+        let s = r#"exp::Const { const = const::Null {} }"#;
         let (rest, exp) = parse_exp(s).unwrap();
         assert_eq!(rest, "");
         assert_eq!(exp, Exp::Const(Const::Null));
@@ -1406,17 +1741,18 @@ mod test {
 
     #[test]
     fn test_parse_statement() {
-        let s = r#"statement {
-             var = Some global_0, 
-             type = (< (word8) vector >),
-             exp = 
-               exp::const::WordVector { const = "unhandled exception: "}
-             ,
-           },"#;
+        let s = r#"
+            statement {var = Some global_0,
+                       type = (< Vector( Word( w8 ) ) >),
+                       exp = exp::Const { const = const::WordVector { const = "unhandled exception: "}}},
+        "#;
         let (rest, stmt) = parse_statement(s).unwrap();
-        assert_eq!(rest, ",");
+        assert_eq!(rest.trim(), ",");
         assert_eq!(stmt.var, Some("global_0".to_string()));
-        assert_eq!(stmt.ty, "(word8) vector".to_string());
+        assert_eq!(
+            stmt.ty,
+            SmlType::Vector(Box::new(SmlType::Word(WordSize::W8)))
+        );
         assert_eq!(
             stmt.exp,
             Exp::Const(crate::ssa::Const::WordVector(
@@ -1426,18 +1762,16 @@ mod test {
 
         let s = r#"statement {
              var = None, 
-             type = (< (word8) vector >),
-             exp = 
-               exp::const::WordVector { const = "unhandled exception: "}
-             ,
-           }"#;
+             type = (< Vector( Word( w8 ) ) >),
+             exp = exp::Const { const = const::WordVector { const = "unhandled exception: "}}}
+        "#;
         let (rest, stmt) = parse_statement(s).unwrap();
-        assert_eq!(rest, "");
+        assert_eq!(rest.trim(), "");
         assert_eq!(
             stmt,
             Statement {
                 var: None,
-                ty: "(word8) vector".to_string(),
+                ty: SmlType::Vector(Box::new(SmlType::Word(WordSize::W8))),
                 exp: Exp::Const(crate::ssa::Const::WordVector(
                     "unhandled exception: ".to_string()
                 ))
@@ -1447,26 +1781,22 @@ mod test {
 
     #[test]
     fn test_parse_globals() {
-        let s = r#"(statement {
-             var = Some global_0,
-             type = (< (word8) vector >),
-             exp = 
-               exp::const::WordVector { const = "unhandled exception: "}
-             ,
-           },
-           statement {
-             var = Some global_1,
-             type = (< (word8) vector >),
-             exp =  exp::const::WordVector { const = "Overflow"} ,
-        })"#;
+        let s = r#"
+        (statement {var = Some global_0,
+                                type = (< Vector( Word( w8 ) ) >),
+                                exp = exp::Const {const = const::WordVector {const = "unhandled exception: "}}},
+                     statement {var = Some global_1,
+                                type = (< Vector( Word( w8 ) ) >),
+                                exp = exp::Const {const = const::WordVector {const = "Overflow"}}})
+        "#;
         let (rest, globals) = parse_globals(s).unwrap();
-        assert_eq!(rest, "");
+        assert_eq!(rest.trim(), "");
         assert_eq!(globals.len(), 2);
         assert_eq!(
             globals[0],
             Statement {
                 var: Some("global_0".to_string()),
-                ty: "(word8) vector".to_string(),
+                ty: SmlType::Vector(Box::new(SmlType::Word(WordSize::W8))),
                 exp: Exp::Const(crate::ssa::Const::WordVector(
                     "unhandled exception: ".to_string()
                 ))
@@ -1476,32 +1806,19 @@ mod test {
             globals[1],
             Statement {
                 var: Some("global_1".to_string()),
-                ty: "(word8) vector".to_string(),
+                ty: SmlType::Vector(Box::new(SmlType::Word(WordSize::W8))),
                 exp: Exp::Const(crate::ssa::Const::WordVector("Overflow".to_string()))
             }
         );
     }
 
     #[test]
-    fn test_option_parser() {
-        let s = "None";
-        let (rest, v) = option_parser(word()).parse(s).unwrap();
-        assert_eq!(rest, "");
-        assert_eq!(v, None);
-
-        let s = "Some (x, y, z)";
-        let (rest, v) = option_parser(paren_list_parser(word())).parse(s).unwrap();
-        assert_eq!(rest, "");
-        assert_eq!(v, Some(vec!["x", "y", "z"]));
-    }
-
-    #[test]
     fn test_parse_typed_var() {
-        let s = "x_0 : (< word8 >) ";
+        let s = "x_0 : (< Word( w32 ) >) ";
         let (rest, var) = parse_typed_var(s).unwrap();
-        assert_eq!(rest, " ");
+        assert_eq!(rest, "");
         assert_eq!(var.name, "x_0".to_string());
-        assert_eq!(var.var_t, "word8".to_string());
+        assert_eq!(var.ty, SmlType::Word(WordSize::W32));
     }
 
     #[test]
@@ -1510,17 +1827,6 @@ mod test {
         let (rest, transfer) = parse_transfer_bug(s).unwrap();
         assert_eq!(rest, ",");
         assert_eq!(transfer, Transfer::Bug);
-    }
-
-    #[test]
-    fn test_paren_bracket_parser() {
-        let s = " (  x , y ) ";
-        let (rest, res) =
-            paren_bracket_parser(separated_pair(word(), tagify_parser(tag(",")), word()))
-                .parse(s)
-                .unwrap();
-        assert_eq!(rest, " ");
-        assert_eq!(res, ("x", "y"));
     }
 
     #[test]
@@ -1585,7 +1891,7 @@ mod test {
                     "exiting_0".to_string()
                 ],
                 ret: Return::NonTail {
-                    cont_id: "L_58".to_string(),
+                    cont: "L_58".to_string(),
                     handler: Handler::Handle {
                         label: "L_57".to_string()
                     }
@@ -1810,26 +2116,26 @@ mod test {
         block {label = L_57,
                args = (),
                statements = (statement {var = None,
-                                        type = (< unit >),
-                                        exp = exp::PrimApp {prim = primitive {prim = CFunction {args = ((< (word8) vector >)),
+                                        type = (< Tuple () >),
+                                        exp = exp::PrimApp {prim = primitive {prim = CFunction {args = ((< Vector( Word( w8 ) ) >)),
                                                                                                 convention = cdecl,
                                                                                                 inline = false,
                                                                                                 kind = Impure,
                                                                                                 prototype = prototype {args = ((< Objptr >)),
                                                                                                                        res = None},
-                                                                                                return = (< unit >),
+                                                                                                return = (< Tuple () >),
                                                                                                 symbolScope = private,
                                                                                                 target = target {type = Direct,
                                                                                                                  name = "Stdio_print"}},
                                                                               kind = DependsOnState},
                                                             args = (global_37)}},
                              statement {var = None,
-                                        type = (< unit >),
+                                        type = (< Tuple () >),
                                         exp = exp::PrimApp {prim = primitive {prim = "MLton_halt",
                                                                               kind = DependsOnState},
                                                             args = (global_5)}},
                              statement {var = None,
-                                        type = (< unit >),
+                                        type = (< Tuple () >),
                                         exp = exp::PrimApp {prim = primitive {prim = "MLton_bug",
                                                                               kind = DependsOnState},
                                                             args = (global_28)}}),
@@ -1844,16 +2150,16 @@ mod test {
             block.statements[0],
             Statement {
                 var: None,
-                ty: "unit".to_string(),
+                ty: SmlType::Tuple(vec![]),
                 exp: Exp::PrimApp {
                     prim: Prim {
                         prim: PrimPrimitive::CFunction {
-                            args: vec!["(word8) vector".to_string()],
+                            args: vec![SmlType::Vector(Box::new(SmlType::Word(WordSize::W8)))],
                             convention: CFunctionConvention::Cdecl,
                             inline: false,
                             kind: CFunctionKind::Impure,
-                            prototype: (vec!["Objptr".to_string()], None),
-                            ret: "unit".to_string(),
+                            prototype: (vec![CType::Objptr], None),
+                            ret: SmlType::Tuple(vec![]),
                             symbol_scope: CFunctionSymbolScope::Private,
                             target: CFunctionTarget::Direct("Stdio_print".to_string()),
                         },
@@ -1869,34 +2175,39 @@ mod test {
 
     #[test]
     fn test_parse_function() {
-        let s = r#"function {name = "main_0",
-                                 mayInline = false,
-                                 args = (),
-                                 start = L_52,
-                                 returns = None,
-                                 raises = None,
-                                 blocks = (block {label = L_52,
-                                                  args = (),
-                                                  statements = (),
-                                                  transfer = transfer::Goto {dst = loop_5,
-                                                                             args = (global_41,
-                                                                                     global_8,
-                                                                                     global_9)}},
-                                           block {label = loop_5,
-                                                  args = (x_78: (< list_3 >),
-                                                          x_81: (< word64 >),
-                                                          x_120: (< word64 >)),
-                                                  statements = (statement {var = Some x_121,
-                                                                           type = (< bool >),
-                                                                           exp = exp::PrimApp {prim = primitive {prim = "Word64_equal",
-                                                                                                                 kind = DependsOnState},
-                                                                                               args = (x_120,
-                                                                                                       global_6)}}),
-                                                  transfer = transfer::case::Con {test = x_121,
-                                                                                  cases =   (true => L_80,
-                                                                                             false => L_55)}})}"#;
+        let s = r#"
+        function {name = "main_0",
+                  mayInline = false,
+                  args = (),
+                  start = L_52,
+                  returns = None,
+                  raises = None,
+                  blocks = (block {label = L_52,
+                                   args = (),
+                                   statements = (),
+                                   transfer = transfer::Goto {dst = loop_5,
+                                                              args = (global_41,
+                                                                      global_8,
+                                                                      global_9)}},
+                            block {label = loop_5,
+                                   args = (x_78:
+                                             (< Datatype( "list_3" ) >),
+                                           x_81:
+                                             (< Word( w64 ) >),
+                                           x_120:
+                                             (< Word( w64 ) >)),
+                                   statements = (statement {var = Some x_121,
+                                                            type = (< Datatype( "bool" ) >),
+                                                            exp = exp::PrimApp {prim = primitive {prim = "Word64_equal",
+                                                                                                  kind = DependsOnState},
+                                                                                args = (x_120,
+                                                                                        global_6)}}),
+                                   transfer = transfer::case::Con {test = x_121,
+                                                                   cases =   (true => L_80,
+                                                                              false => L_55)}})}
+        "#;
         let (rest, func) = parse_function(s).unwrap();
-        assert_eq!(rest, "");
+        assert_eq!(rest.trim(), "");
         assert_eq!(func.name, "main_0".to_string());
         assert_eq!(func.may_inline, false);
         assert_eq!(func.args.len(), 0);
@@ -1910,15 +2221,20 @@ mod test {
     #[test]
     fn test_parse_ssa() {
         let s = r#"mltonssa {
-        datatypes = (datatype {tycon = "list_4", cons = (( dummy_0 ))},
-                       datatype {tycon = "list_3",
-                                 cons = (( nil_0 ), ( ::_2, ((< list_3 >)) ))}),
-        globals = (statement {var = Some global_0,
-                                type = (< (word8) vector >),
-                                exp = exp::const::WordVector {const = "unhandled exception: "}},
-                     statement {var = Some global_1,
-                                type = (< (word8) vector >),
-                                exp = exp::const::WordVector {const = "Overflow"}}),
+        datatypes = (
+            datatype {tycon = "list_4", cons = (( dummy_0 ))},
+            datatype {tycon = "list_3",
+                      cons = (( nil_0 ),
+                              ( ::_2, ((< Datatype( "list_3" ) >)) ))}
+        ),
+        globals = (
+            statement {var = Some global_0,
+                       type = (< Vector( Word( w8 ) ) >),
+                       exp = exp::Const {const = const::WordVector {const = "unhandled exception: "}}},
+            statement {var = Some global_1,
+                       type = (< Vector( Word( w8 ) ) >),
+                       exp = exp::Const {const = const::WordVector {const = "Overflow"}}}
+        ),
         functions = (
             function {name = "main_0",
                       mayInline = false,
@@ -1932,21 +2248,27 @@ mod test {
                                        transfer = transfer::Goto {dst = loop_5,
                                                                   args = (global_41,
                                                                           global_8,
-                                                                          global_9)}},
-                                block {label = loop_5,
-                                       args = (x_78: (< list_3 >),
-                                               x_81: (< word64 >),
-                                               x_120: (< word64 >)),
-                                       statements = (statement {var = Some x_121,
-                                                                type = (< bool >),
-                                                                exp = exp::PrimApp {prim = primitive {prim = "Word64_equal",
+                                                                          global_9)}})},
+            function {name = "exit_0",
+                      mayInline = true,
+                      args = (x_3: (< Word( w32 ) >),
+                              x_2: (< Array( Word( w8 ) ) >),
+                              x_1: (< Ref( Datatype( "bool" ) ) >),
+                              x_0: (< Ref( Datatype( "bool" ) ) >)),
+                      start = L_0,
+                      returns = None,
+                      raises = Some (),
+                      blocks = (block {label = L_0,
+                                       args = (),
+                                       statements = (statement {var = Some x_76,
+                                                                type = (< Datatype( "bool" ) >),
+                                                                exp = exp::PrimApp {prim = primitive {prim = "Ref_deref",
                                                                                                       kind = DependsOnState},
-                                                                                    args = (x_120,
-                                                                                            global_6)}}),
-                                       transfer = transfer::case::Con {test = x_121,
-                                                                       cases =   (true => L_80,
-                                                                                  false => L_55)}}
-                                )}
+                                                                                    args = (x_0),
+                                                                                    targs = ((< Datatype( "bool" ) >))}}),
+                                       transfer = transfer::case::Con {test = x_76,
+                                                                       cases =   (true => L_51,
+                                                                                  false => L_50)}})}
         ),
         main = main_0,
         }"#;
@@ -1955,7 +2277,7 @@ mod test {
         assert_eq!(rest, "");
         assert_eq!(ssa.datatypes.len(), 2);
         assert_eq!(ssa.globals.len(), 2);
-        assert_eq!(ssa.functions.len(), 1);
+        assert_eq!(ssa.functions.len(), 2);
         assert_eq!(ssa.main, "main_0".to_string());
     }
 

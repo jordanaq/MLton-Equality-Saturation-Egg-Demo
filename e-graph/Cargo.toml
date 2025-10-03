@@ -8,4 +8,4 @@ egg = "0.10.0"
 graphviz-rust = "0.9"
 nom = "8"
 parse_utils = { path = "../parse_utils" }
-sml_utils = { path = "../sml_utils" }
+mlton_ssa = { path = "../mlton_ssa" }

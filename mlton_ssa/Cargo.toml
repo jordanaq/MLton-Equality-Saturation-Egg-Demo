@@ -6,4 +6,5 @@ edition = "2024"
 [dependencies]
 nom = "8"
 parse_utils = { path = "../parse_utils" }
-sml_utils = { path = "../sml_utils" }
+print_utils = { path = "../print_utils" }
+pretty = "0.12"

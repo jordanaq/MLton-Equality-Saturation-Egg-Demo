@@ -2,45 +2,9 @@ use std::{collections::HashMap, fmt, str::FromStr};
 
 use egg::{EGraph, Id, RecExpr, define_language};
 
-use sml_utils::SmlType;
+use mlton_ssa::ssa::{Const, SmlType};
 
 use crate::parse::*;
-
-/// Represents a literal in the FPeg IR
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Lit {
-    Word8(u8),
-    Word16(u16),
-    Word32(u32),
-    Word64(u64),
-    Unit,
-}
-
-impl fmt::Display for Lit {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Lit::Word8(v) => write!(f, "Lit<{:#x} : word8>", v),
-            Lit::Word16(v) => write!(f, "Lit<{:#x} : word16>", v),
-            Lit::Word32(v) => write!(f, "Lit<{:#x} : word32>", v),
-            Lit::Word64(v) => write!(f, "Lit<{:#x} : word64>", v),
-            Lit::Unit => write!(f, "Lit<()>"),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct ParseLitErr;
-
-impl FromStr for Lit {
-    type Err = ParseLitErr;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match parse_lit(s) {
-            Ok(("", lit)) => Ok(lit),
-            _ => Err(ParseLitErr),
-        }
-    }
-}
 
 /// Represents a primitive SML function in the FPeg IR
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -53,10 +17,13 @@ impl FromStr for Prim {
     type Err = ParsePrimErr;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        todo!()
+        /*
         match parse_prim(s) {
             Ok(("", prim)) => Ok(prim),
             _ => Err(ParsePrimErr),
         }
+        */
     }
 }
 
@@ -121,7 +88,7 @@ define_language! {
     /// Defines the FPeg IR for the e-graph
     pub enum FPegL {
         // A literal of an SML primitive type
-        Literal(Lit),
+        Literal(Const),
 
         // Represents a block argument
         Parameter(Param),
@@ -180,15 +147,7 @@ mod tests {
     use super::*;
 
     use egg::RecExpr;
-
-    #[test]
-    fn test_lit_to_str() {
-        assert_eq!(format!("{}", Lit::Word8(0)), "Lit<0x0 : word8>");
-        assert_eq!(format!("{}", Lit::Word16(0)), "Lit<0x0 : word16>");
-        assert_eq!(format!("{}", Lit::Word32(0)), "Lit<0x0 : word32>");
-        assert_eq!(format!("{}", Lit::Word64(0)), "Lit<0x0 : word64>");
-        assert_eq!(format!("{}", Lit::Unit), "Lit<()>");
-    }
+    use mlton_ssa::ssa::WordSize;
 
     #[test]
     fn test_prim_to_str() {
@@ -198,27 +157,16 @@ mod tests {
     }
 
     #[test]
-    fn test_constr_to_str() {
-        let add = "Add".to_owned();
-        let t = "T".to_owned();
-        let constr = Constr {
-            constr_type: t,
-            name: add,
-        };
-        assert_eq!(format!("{}", constr), "Constr<T::Add>");
-    }
-
-    #[test]
     fn test_fpeg() {
-        let w32 = "word32";
+        let w32 = "Word32".parse::<SmlType>().unwrap();
         let mut e: RecExpr<FPegL> = RecExpr::default();
-        let x_e = e.add(FPegL::Parameter(Param("x".to_owned(), w32.to_owned())));
-        let y_e = e.add(FPegL::Parameter(Param("y".to_owned(), w32.to_owned())));
+        let x_e = e.add(FPegL::Parameter(Param("x".to_owned(), w32.clone())));
+        let y_e = e.add(FPegL::Parameter(Param("y".to_owned(), w32.clone())));
         let add_e = e.add(FPegL::CallPrim(
             Prim("add".to_owned()),
             Box::new([x_e, y_e]),
         ));
-        let lit2_e = e.add(FPegL::Literal(Lit::Word32(2)));
+        let lit2_e = e.add(FPegL::Literal(Const::Word(WordSize::W32, 2)));
         let _ = e.add(FPegL::CallPrim(
             Prim("mul".to_owned()),
             Box::new([lit2_e, add_e]),

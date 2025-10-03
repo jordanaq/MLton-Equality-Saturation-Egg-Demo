@@ -1,3 +1,3 @@
 [workspace]
 resolver = "3"
-members = ["e-graph", "mlton_ssa", "parse_utils", "skeleton", "sml_utils"]
+members = ["e-graph", "mlton_ssa", "parse_utils", "print_utils", "skeleton"]

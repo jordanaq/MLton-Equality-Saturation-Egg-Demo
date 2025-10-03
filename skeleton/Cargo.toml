@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 e-graph = { path = "../e-graph" }
-sml_utils = { path = "../sml_utils" }
+mlton_ssa = { path = "../mlton_ssa" }
 parse_utils = { path = "../parse_utils" }
 nom = "8"
 bimap = "0.6"
