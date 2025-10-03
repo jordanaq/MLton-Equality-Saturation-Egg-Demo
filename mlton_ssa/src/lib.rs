@@ -1,2 +1,2 @@
-pub mod ssa;
 mod parse;
+pub mod ssa;

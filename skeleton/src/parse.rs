@@ -55,9 +55,9 @@ impl Skeleton {
 }
 
 mod test {
-    use std::collections::HashMap;
     use crate::skeleton::BlockId;
     use bimap::BiMap;
+    use std::collections::HashMap;
 
     use super::*;
 
@@ -79,25 +79,18 @@ mod test {
                 m.insert(name.into(), b_id);
             });
 
-         
-
         let l0 = Block::new(
             m.get_by_left("L0".into()).unwrap().clone(),
             "L0".into(),
             Vec::new(),
-            Transfer::make_goto(
-                m.get_by_left("L1".into()).unwrap().clone(),
-                vec![],),
+            Transfer::make_goto(m.get_by_left("L1".into()).unwrap().clone(), vec![]),
         );
 
         let l1 = Block::new(
             m.get_by_left("L1".into()).unwrap().clone(),
             "L1".into(),
             vec![("x0".into(), "w32".into()), ("acc0".into(), "w32".into())],
-            Transfer::make_goto(
-                m.get_by_left("L2".into()).unwrap().clone(),
-                vec![],
-            ),
+            Transfer::make_goto(m.get_by_left("L2".into()).unwrap().clone(), vec![]),
         );
 
         let ret_t: SmlType = "w32".to_string();

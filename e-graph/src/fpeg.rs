@@ -6,7 +6,6 @@ use sml_utils::SmlType;
 
 use crate::parse::*;
 
-
 /// Represents a literal in the FPeg IR
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Lit {
@@ -43,7 +42,6 @@ impl FromStr for Lit {
     }
 }
 
-
 /// Represents a primitive SML function in the FPeg IR
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Prim(pub String);
@@ -67,7 +65,6 @@ impl fmt::Display for Prim {
         write!(f, "Prim<{}>", self.0)
     }
 }
-
 
 /// Represents a constructor use in the FPeg IR
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -96,7 +93,6 @@ impl fmt::Display for Constr {
     }
 }
 
-
 /// Represents a parameter in the FPeg IR
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Param(pub String, pub SmlType);
@@ -120,7 +116,6 @@ impl fmt::Display for Param {
         write!(f, "Param<{} : {}>", self.0, self.1)
     }
 }
-
 
 define_language! {
     /// Defines the FPeg IR for the e-graph

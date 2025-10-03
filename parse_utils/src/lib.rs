@@ -11,7 +11,7 @@ pub fn word<'a, E>() -> impl Parser<&'a str, Output = &'a str, Error = E>
 where
     E: ParseError<&'a str>,
 {
-    take_while1(|c| AsChar::is_alphanum(c) || "-_".contains(c))
+    take_while1(|c| AsChar::is_alphanum(c) || "'-_".contains(c))
 }
 
 pub fn paren_list<'a, E>() -> impl Parser<&'a str, Output = Vec<&'a str>, Error = E>
