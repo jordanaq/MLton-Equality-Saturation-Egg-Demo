@@ -1,11 +1,19 @@
-use std::{cmp::Ordering, collections::HashMap, fmt::Display, str::FromStr};
+use std::{
+    cmp::Ordering,
+    collections::{HashMap, HashSet},
+    fmt::Display,
+    hash::Hash,
+    str::FromStr,
+};
+
+use ordered_float::OrderedFloat;
+
+use crate::parse::{parse_exp_const, parse_sml_type_raw, parse_ssa};
 
 pub type ConstructorId = String;
 pub type FunctionId = String;
 pub type VarId = String;
 pub type Label = String;
-
-use crate::parse::{parse_exp_const, parse_sml_type_raw, parse_ssa};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum RealSize {
@@ -13,7 +21,7 @@ pub enum RealSize {
     R64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum WordSize {
     W8,
     W16,
@@ -64,81 +72,14 @@ impl Var {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Const {
     CSymbol(/* TODO */),
     IntInf(i128 /* TODO */),
     Null,
-    Real(RealSize, f64),
+    Real(RealSize, OrderedFloat<f64>),
     Word(WordSize, u64),
     WordVector(String),
-}
-
-impl Eq for Const {}
-
-impl Ord for Const {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match (self, other) {
-            (Const::CSymbol(), Const::CSymbol()) => Ordering::Equal,
-            (Const::CSymbol(), _) => Ordering::Less,
-            (_, Const::CSymbol()) => Ordering::Greater,
-            (Const::IntInf(a), Const::IntInf(b)) => a.cmp(b),
-            (Const::IntInf(_), _) => Ordering::Less,
-            (_, Const::IntInf(_)) => Ordering::Greater,
-            (Const::Null, Const::Null) => Ordering::Equal,
-            (Const::Null, _) => Ordering::Less,
-            (_, Const::Null) => Ordering::Greater,
-            (Const::Real(rs_a, r_a), Const::Real(rs_b, r_b)) => {
-                match rs_a.cmp(rs_b) {
-                    Ordering::Equal => r_a.partial_cmp(r_b).unwrap_or(Ordering::Equal),
-                    ord => ord,
-                }
-            }
-            (Const::Real(_, _), _) => Ordering::Less,
-            (_, Const::Real(_, _)) => Ordering::Greater,
-            (Const::Word(ws_a, w_a), Const::Word(ws_b, w_b)) => {
-                match ws_a.cmp(ws_b) {
-                    Ordering::Equal => w_a.cmp(w_b),
-                    ord => ord,
-                }
-            }
-            (Const::Word(_, _), _) => Ordering::Less,
-            (_, Const::Word(_, _)) => Ordering::Greater,
-            (Const::WordVector(s_a), Const::WordVector(s_b)) => s_a.cmp(s_b),
-        }
-    }
-}
-
-impl std::hash::Hash for Const {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        match self {
-            Const::CSymbol() => {
-                0u8.hash(state);
-            }
-            Const::IntInf(i) => {
-                1u8.hash(state);
-                i.hash(state);
-            }
-            Const::Null => {
-                2u8.hash(state);
-            }
-            Const::Real(rs, r) => {
-                3u8.hash(state);
-                rs.hash(state);
-                // Note: f64 does not implement Hash, so we convert to bits
-                r.to_bits().hash(state);
-            }
-            Const::Word(ws, w) => {
-                4u8.hash(state);
-                ws.hash(state);
-                w.hash(state);
-            }
-            Const::WordVector(s) => {
-                5u8.hash(state);
-                s.hash(state);
-            }
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -196,6 +137,15 @@ pub struct Prim {
     pub kind: PrimKind,
 }
 
+impl Prim {
+    pub fn make_pure_sml(prim: &str) -> Prim {
+        Prim {
+            prim: PrimPrimitive::SmlPrim(prim.into()),
+            kind: PrimKind::Functional,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Exp {
     ConApp {
@@ -224,21 +174,21 @@ pub struct Statement {
     pub exp: Exp,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Handler {
     Caller,
     Dead,
     Handle { label: Label },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Return {
     Dead,
     NonTail { cont: Label, handler: Handler },
     Tail,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Cases {
     Con(Vec<(ConstructorId, Label)>),
     Word(WordSize, Vec<(u64, Label)>),
@@ -284,6 +234,16 @@ pub struct Datatype {
     pub constrs: Vec<(ConstructorId, Vec<SmlType>)>,
 }
 
+impl Datatype {
+    pub fn contains_cons(&self, cons: &str) -> bool {
+        println!(
+            "Checking if datatype {} contains constructor {}",
+            self.tycon, cons
+        );
+        self.constrs.iter().any(|(cons_tag, _)| cons_tag == cons)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     pub args: Vec<Var>,
@@ -295,10 +255,401 @@ pub struct Function {
     pub start: Label,
 }
 
+type Cfg = HashMap<Label, Vec<Label>>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DominatorTree {
+    root: Label,
+    adjacency_list: HashMap<Label, HashSet<Label>>,
+}
+
+impl Function {
+    pub fn block_adjacency_list(&self) -> Cfg {
+        let mut l: HashMap<Label, Vec<Label>> = HashMap::new();
+
+        for block in &self.blocks {
+            let succs: Vec<String> = match &block.transfer {
+                Transfer::Bug
+                | Transfer::Raise { .. }
+                | Transfer::Return { .. }
+                | Transfer::Runtime => vec![],
+                Transfer::Call { ret, .. } => match ret {
+                    Return::Dead => vec![],
+                    Return::NonTail { cont, .. } => vec![cont.into()],
+                    Return::Tail => vec![],
+                },
+                Transfer::Case { cases, default, .. } => {
+                    let mut succs: Vec<Label> = match cases {
+                        Cases::Con(v) => v.iter().map(|(_, lbl)| lbl.into()).collect(),
+                        Cases::Word(_, v) => v.iter().map(|(_, lbl)| lbl.into()).collect(),
+                    };
+
+                    if let Some(d) = default {
+                        succs.push(d.into());
+                    }
+
+                    succs
+                }
+                Transfer::Goto { dst, .. } => vec![dst.into()],
+            };
+
+            l.insert(block.label.clone(), succs);
+        }
+
+        l
+    }
+
+    pub fn block_predecessor_list(&self) -> HashMap<Label, Vec<Label>> {
+        let adjacency_list = self.block_adjacency_list();
+        let mut pred_list: HashMap<Label, Vec<Label>> = HashMap::new();
+        for Block { label, .. } in &self.blocks {
+            pred_list.entry(label.clone()).or_default();
+        }
+        for (block, succs) in adjacency_list {
+            for succ in succs {
+                pred_list.entry(succ).or_default().push(block.clone());
+            }
+        }
+        pred_list
+    }
+
+    pub fn dominator_tree(&self) -> DominatorTree {
+        let mut doms: HashMap<Label, HashSet<Label>> = HashMap::new();
+
+        let cfg = self.block_adjacency_list();
+        let preds = self.block_predecessor_list();
+
+        doms.insert(self.start.clone(), [self.start.clone()].into());
+
+        for block in &self.blocks {
+            if block.label != self.start {
+                doms.insert(block.label.clone(), cfg.keys().cloned().collect());
+            }
+        }
+
+        let mut changed = true;
+        while changed {
+            changed = false;
+
+            for block in &self.blocks {
+                if block.label == self.start {
+                    continue;
+                }
+
+                let pred_doms: HashSet<Label> = preds
+                    .get(&block.label)
+                    .unwrap()
+                    .iter()
+                    .filter_map(|p| doms.get(p))
+                    .cloned()
+                    .fold(cfg.keys().cloned().collect(), |acc, d| {
+                        acc.intersection(&d).cloned().collect()
+                    });
+
+                let new_doms: HashSet<Label> = pred_doms
+                    .union(&[block.label.clone()].into())
+                    .cloned()
+                    .collect();
+
+                if new_doms != *doms.get(&block.label).unwrap() {
+                    doms.insert(block.label.clone(), new_doms);
+                    changed = true;
+                }
+            }
+        }
+
+        DominatorTree {
+            root: self.start.clone(),
+            adjacency_list: doms,
+        }
+    }
+
+    fn get_scope_h(
+        &self,
+        dominator: &DominatorTree,
+        visited: &mut HashSet<Label>,
+        scopes: &mut HashMap<Label, HashSet<(VarId, SmlType)>>,
+        label: &Label,
+    ) {
+        let doms = dominator.adjacency_list.get(label).unwrap();
+
+        // func args
+        scopes.entry(label.clone()).or_default().extend(
+            self.args
+                .iter()
+                .map(|arg| (arg.name.clone(), arg.ty.clone())),
+        );
+
+        for dom in doms {
+            if dom == label {
+                continue;
+            }
+
+            if !visited.contains(dom) {
+                self.get_scope_h(dominator, visited, scopes, dom);
+            }
+
+            if let Some(dom_scope) = scopes.get(dom).cloned() {
+                scopes.entry(label.clone()).or_default().extend(dom_scope);
+            }
+        }
+
+        if let Some(block) = self.blocks.iter().find(|b| &b.label == label) {
+            for arg in &block.args {
+                scopes
+                    .entry(label.clone())
+                    .or_default()
+                    .insert((arg.name.clone(), arg.ty.clone()));
+            }
+            // assume statements are in valid SSA form
+            for stmt in &block.statements {
+                if let Some(var) = &stmt.var {
+                    scopes
+                        .entry(label.clone())
+                        .or_default()
+                        .insert((var.clone(), stmt.ty.clone()));
+                }
+            }
+        }
+
+        visited.insert(label.clone());
+    }
+
+    pub fn get_scope(&self, label: &Label) -> Option<HashMap<VarId, SmlType>> {
+        let mut visited: HashSet<Label> = HashSet::new();
+        let mut scopes: HashMap<Label, HashSet<(VarId, SmlType)>> = HashMap::new();
+        self.get_scope_h(&self.dominator_tree(), &mut visited, &mut scopes, label);
+        scopes.get(label).map(|s| s.iter().cloned().collect())
+    }
+
+    pub fn get_scopes(&self) -> HashMap<Label, HashMap<VarId, SmlType>> {
+        let mut visited: HashSet<Label> = HashSet::new();
+        let mut scopes: HashMap<Label, HashSet<(VarId, SmlType)>> = HashMap::new();
+        let dominator = self.dominator_tree();
+        for block in &self.blocks {
+            self.get_scope_h(&dominator, &mut visited, &mut scopes, &block.label);
+        }
+        scopes
+            .into_iter()
+            .map(|(k, v)| (k, v.into_iter().collect()))
+            .collect()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct MltonSsa {
-    pub datatypes: HashMap<SmlType, Datatype>,
+    pub datatypes: Vec<Datatype>,
     pub globals: Vec<Statement>,
     pub functions: Vec<Function>,
     pub main: FunctionId,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn example_func() -> Function {
+        Function {
+            args: vec![Var::new("x".into(), SmlType::Word(WordSize::W32))],
+            blocks: vec![
+                Block {
+                    args: vec![],
+                    label: "L1".into(),
+                    statements: vec![],
+                    transfer: Transfer::Goto {
+                        dst: "L2".into(),
+                        args: vec![],
+                    },
+                },
+                Block {
+                    args: vec![],
+                    label: "L2".into(),
+                    statements: vec![Statement {
+                        var: Some("x_pairity".into()),
+                        ty: SmlType::Word(WordSize::W32),
+                        exp: Exp::PrimApp {
+                            prim: Prim::make_pure_sml("and_w32"),
+                            targs: None,
+                            args: vec!["x".into(), "literal_1".into()],
+                        },
+                    }],
+                    transfer: Transfer::Case {
+                        test: "x_pairity".into(),
+                        cases: Cases::Word(WordSize::W32, vec![(1, "L3".into()), (2, "L4".into())]),
+                        default: Some("L5".into()),
+                    },
+                },
+                Block {
+                    args: vec![],
+                    label: "L3".into(),
+                    statements: vec![],
+                    transfer: Transfer::Goto {
+                        dst: "L6".into(),
+                        args: vec!["literal_false".into()],
+                    },
+                },
+                Block {
+                    args: vec![],
+                    label: "L4".into(),
+                    statements: vec![],
+                    transfer: Transfer::Goto {
+                        dst: "L6".into(),
+                        args: vec!["literal_true".into()],
+                    },
+                },
+                Block {
+                    args: vec![],
+                    label: "L5".into(),
+                    statements: vec![],
+                    transfer: Transfer::Bug,
+                },
+                Block {
+                    args: vec![Var {
+                        name: "ret".into(),
+                        ty: SmlType::Word(WordSize::W32),
+                    }],
+                    label: "L6".into(),
+                    statements: vec![],
+                    transfer: Transfer::Return {
+                        args: vec!["ret".into()],
+                    },
+                },
+            ],
+            may_inline: false,
+            name: "test_func".into(),
+            raises: None,
+            returns: None,
+            start: "L1".into(),
+        }
+    }
+
+    #[test]
+    fn test_func_adjacency() {
+        let func = example_func();
+
+        let l = func.block_adjacency_list();
+
+        assert_eq!(l.len(), 6);
+        assert_eq!(*l.get("L1".into()).unwrap(), vec!["L2"]);
+        assert_eq!(*l.get("L2".into()).unwrap(), vec!["L3", "L4", "L5"]);
+        assert_eq!(*l.get("L3".into()).unwrap(), vec!["L6"]);
+        assert_eq!(*l.get("L4".into()).unwrap(), vec!["L6"]);
+        assert_eq!(*l.get("L5".into()).unwrap(), Vec::<String>::new());
+        assert_eq!(*l.get("L6".into()).unwrap(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_func_predecessor() {
+        let func = example_func();
+        let l = func.block_predecessor_list();
+
+        assert_eq!(l.len(), 6);
+        assert_eq!(*l.get("L1".into()).unwrap(), Vec::<String>::new());
+        assert_eq!(*l.get("L2".into()).unwrap(), vec!["L1"]);
+        assert_eq!(*l.get("L3".into()).unwrap(), vec!["L2"]);
+        assert_eq!(*l.get("L4".into()).unwrap(), vec!["L2"]);
+        assert_eq!(*l.get("L5".into()).unwrap(), vec!["L2"]);
+        assert_eq!(*l.get("L6".into()).unwrap(), vec!["L3", "L4"]);
+    }
+
+    #[test]
+    fn test_func_dominators() {
+        let func = example_func();
+        let doms = func.dominator_tree().adjacency_list;
+
+        assert_eq!(doms.len(), 6);
+        assert_eq!(
+            *doms.get("L1".into()).unwrap(),
+            HashSet::from(["L1".into()])
+        );
+        assert_eq!(
+            *doms.get("L2".into()).unwrap(),
+            HashSet::from(["L1".into(), "L2".into()])
+        );
+        assert_eq!(
+            *doms.get("L3".into()).unwrap(),
+            HashSet::from(["L1".into(), "L2".into(), "L3".into()])
+        );
+        assert_eq!(
+            *doms.get("L4".into()).unwrap(),
+            HashSet::from(["L1".into(), "L2".into(), "L4".into()])
+        );
+        assert_eq!(
+            *doms.get("L5".into()).unwrap(),
+            HashSet::from(["L1".into(), "L2".into(), "L5".into()])
+        );
+        assert_eq!(
+            *doms.get("L6".into()).unwrap(),
+            HashSet::from(["L1".into(), "L2".into(), "L6".into()])
+        );
+    }
+
+    #[test]
+    fn test_func_scope() {
+        let func = example_func();
+
+        let scope_l6 = func.get_scope(&"L6".into()).unwrap();
+        assert_eq!(
+            scope_l6,
+            HashMap::from([
+                ("x".into(), SmlType::Word(WordSize::W32)),
+                ("x_pairity".into(), SmlType::Word(WordSize::W32)),
+                ("ret".into(), SmlType::Word(WordSize::W32)),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_get_scopes() {
+        let func = example_func();
+        let scopes = func.get_scopes();
+
+        assert_eq!(scopes.len(), 6);
+
+        assert_eq!(
+            scopes.get("L1").unwrap(),
+            &HashMap::from([("x".into(), SmlType::Word(WordSize::W32)),])
+        );
+
+        assert_eq!(
+            scopes.get("L2").unwrap(),
+            &HashMap::from([
+                ("x".into(), SmlType::Word(WordSize::W32)),
+                ("x_pairity".into(), SmlType::Word(WordSize::W32)),
+            ])
+        );
+
+        assert_eq!(
+            scopes.get("L3").unwrap(),
+            &HashMap::from([
+                ("x".into(), SmlType::Word(WordSize::W32)),
+                ("x_pairity".into(), SmlType::Word(WordSize::W32)),
+            ])
+        );
+
+        assert_eq!(
+            scopes.get("L4").unwrap(),
+            &HashMap::from([
+                ("x".into(), SmlType::Word(WordSize::W32)),
+                ("x_pairity".into(), SmlType::Word(WordSize::W32)),
+            ])
+        );
+
+        assert_eq!(
+            scopes.get("L5").unwrap(),
+            &HashMap::from([
+                ("x".into(), SmlType::Word(WordSize::W32)),
+                ("x_pairity".into(), SmlType::Word(WordSize::W32)),
+            ])
+        );
+
+        assert_eq!(
+            scopes.get("L6").unwrap(),
+            &HashMap::from([
+                ("x".into(), SmlType::Word(WordSize::W32)),
+                ("x_pairity".into(), SmlType::Word(WordSize::W32)),
+                ("ret".into(), SmlType::Word(WordSize::W32)),
+            ])
+        );
+    }
 }

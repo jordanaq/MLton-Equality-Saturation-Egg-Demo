@@ -1,116 +1,65 @@
-use std::{collections::HashMap, fmt, str::FromStr};
+use std::{
+    collections::HashMap,
+    fmt::{self, Display},
+    str::FromStr,
+};
 
 use egg::{EGraph, Id, RecExpr, define_language};
 
-use mlton_ssa::ssa::{Const, SmlType};
+use mlton_ssa::{
+    print,
+    ssa::{
+        Const, ConstructorId as MltConstructorId, Datatype as MltDatatype, Exp as MltExp,
+        Prim as MltPrim, SmlType, VarId as MltVarId,
+    },
+};
 
 use crate::parse::*;
 
-/// Represents a primitive SML function in the FPeg IR
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Prim(pub String);
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct ParsePrimErr;
-
-impl FromStr for Prim {
-    type Err = ParsePrimErr;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        todo!()
-        /*
-        match parse_prim(s) {
-            Ok(("", prim)) => Ok(prim),
-            _ => Err(ParsePrimErr),
-        }
-        */
-    }
-}
-
-impl fmt::Display for Prim {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Prim<{}>", self.0)
-    }
-}
+pub type Region = Id;
 
 /// Represents a constructor use in the FPeg IR
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Constr {
     pub constr_type: SmlType,
-    pub name: String,
+    pub tycon: String,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct ParseConstrErr;
-
-impl FromStr for Constr {
-    type Err = ParseConstrErr;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match parse_constr(s) {
-            Ok(("", constr)) => Ok(constr),
-            _ => Err(ParseConstrErr),
-        }
-    }
-}
-
-impl fmt::Display for Constr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Constr<{}::{}>", self.constr_type, self.name)
-    }
-}
-
-/// Represents a parameter in the FPeg IR
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Param(pub String, pub SmlType);
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct ParseParamErr;
-
-impl FromStr for Param {
-    type Err = ParseConstrErr;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match parse_param(s) {
-            Ok(("", param)) => Ok(param),
-            _ => Err(ParseConstrErr),
-        }
-    }
-}
-
-impl fmt::Display for Param {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Param<{} : {}>", self.0, self.1)
-    }
+pub(crate) struct PrimWrapper {
+    pub(crate) prim: MltPrim,
+    pub(crate) targs: Option<Vec<SmlType>>,
 }
 
 define_language! {
     /// Defines the FPeg IR for the e-graph
     pub enum FPegL {
+         // Represents a call of an SML primitive function
+        PrimApp(PrimWrapper, Box<[Region]>),
+
+        // Construct a datatype given a constructor and an arbitrary number of args
+        Construct(Constr, Box<[Region]>),
+
+        // Select an item from a tuple given an offset
+        "Select" = Select([Region; 2]),
+
+        // Create a tuple
+        "Tuple" = Tuple(Box<[Region]>),
+
         // A literal of an SML primitive type
         Literal(Const),
 
-        // Represents a block argument
-        Parameter(Param),
-
-        // Represents a call of an SML primitive function
-        CallPrim(Prim, Box<[Id]>),
-
-        // Construct a datatype given a constructor and an arbitrary number of args
-        Construct(Constr, Box<[Id]>),
-
-        // Deconstruct given a constructor and a field
-        Deconstruct(Constr, [Id; 2]),
+        // Represents an argument
+        Arg(MltVarId),
     }
 }
 
 type Analysis = (); // TODO:
-pub type Region = egg::Id;
 
 /// Wrapper for FPeg e-graph
 #[derive(Debug, Clone)]
 pub struct FPeg {
-    egraph: EGraph<FPegL, Analysis>,
+    pub(crate) egraph: EGraph<FPegL, Analysis>,
     region_map: HashMap<String, Region>,
 }
 
@@ -130,63 +79,161 @@ impl Default for FPeg {
 }
 
 impl FPeg {
-    pub fn construct_region(&mut self, code: String) -> Region {
-        if let Some(region) = self.region_map.get(&code) {
-            return *region;
-        }
+    pub(crate) fn datatype_from_con(
+        datatypes: &Vec<MltDatatype>,
+        cons: &MltConstructorId,
+    ) -> Option<MltDatatype> {
+        datatypes.iter().find(|dt| dt.contains_cons(cons)).cloned()
+    }
 
-        let code_expr: RecExpr<FPegL> = code.parse().unwrap();
-        let region = self.egraph.add_expr(&code_expr);
-        self.region_map.insert(code, region);
-        region
+    pub fn make_region(
+        &mut self,
+        datatypes: &Vec<MltDatatype>,
+        scope: &HashMap<MltVarId, SmlType>,
+        mlton_expr: &MltExp,
+    ) -> Option<Region> {
+        let exp = match mlton_expr {
+            MltExp::ConApp { con, args } => {
+                let dt = Self::datatype_from_con(datatypes, &con)?;
+                let constr = Constr {
+                    constr_type: SmlType::Datatype(dt.tycon),
+                    tycon: con.clone(),
+                };
+
+                let expected_arg_tys = dt.constrs.iter().find(|(c, _)| c == con)?.1.clone();
+
+                let actual_arg_tys = args
+                    .iter()
+                    .map(|a| scope.get(a).unwrap().clone())
+                    .collect::<Vec<SmlType>>();
+
+                assert!(expected_arg_tys == actual_arg_tys);
+
+                let arg_rs = args
+                    .iter()
+                    .map(|a: &String| self.make_region(datatypes, scope, &MltExp::Var(a.clone())))
+                    .collect::<Option<Box<[Region]>>>()?;
+                FPegL::Construct(constr, arg_rs)
+            }
+            MltExp::PrimApp { prim, targs, args } => {
+                let arg_rs = args
+                    .iter()
+                    .map(|a| self.make_region(datatypes, scope, &MltExp::Var(a.clone())))
+                    .collect::<Option<Box<[Region]>>>()?;
+
+                FPegL::PrimApp(
+                    PrimWrapper {
+                        prim: prim.clone(),
+                        targs: targs.clone(),
+                    },
+                    arg_rs,
+                )
+            }
+            MltExp::Const(c) => FPegL::Literal(c.clone()),
+            MltExp::Profile() => todo!(),
+            MltExp::Select { tuple, offset } => {
+                let tup_r = self.make_region(datatypes, scope, &MltExp::Var(tuple.clone()))?;
+                let offset_r =
+                    self.make_region(datatypes, scope, &MltExp::Const(Const::IntInf(*offset)))?;
+
+                FPegL::Select([tup_r, offset_r])
+            }
+            MltExp::Tuple(items) => {
+                let item_rs = items
+                    .iter()
+                    .map(|i| self.make_region(datatypes, scope, &MltExp::Var(i.clone())))
+                    .collect::<Option<Box<[Region]>>>()?;
+
+                FPegL::Tuple(item_rs)
+            }
+            MltExp::Var(v) => {
+                scope.get(v).unwrap_or_else(|| {
+                    panic!("Variable {} not found in scope {:?}", v, scope);
+                });
+                FPegL::Arg(v.clone())
+            }
+        };
+
+        Some(self.egraph.add(exp))
+    }
+
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use mlton_ssa::{print, ssa::WordSize};
+
     use super::*;
 
-    use egg::RecExpr;
-    use mlton_ssa::ssa::WordSize;
+    fn make_test_datatypes() -> Vec<MltDatatype> {
+        vec![MltDatatype {
+            tycon: "list_0".into(),
+            constrs: vec![
+                (
+                    "cons_0".into(),
+                    vec![
+                        SmlType::Word(WordSize::W64),
+                        SmlType::Datatype("list_0".into()),
+                    ],
+                ),
+                ("nil_0".into(), vec![]),
+            ],
+        }]
+    }
 
-    #[test]
-    fn test_prim_to_str() {
-        let add = "Add".to_owned();
-        let prim = Prim(add);
-        assert_eq!(format!("{}", prim), "Prim<Add>");
+    fn make_test_fpeg() -> FPeg {
+        FPeg::new()
     }
 
     #[test]
-    fn test_fpeg() {
-        let w32 = "Word32".parse::<SmlType>().unwrap();
-        let mut e: RecExpr<FPegL> = RecExpr::default();
-        let x_e = e.add(FPegL::Parameter(Param("x".to_owned(), w32.clone())));
-        let y_e = e.add(FPegL::Parameter(Param("y".to_owned(), w32.clone())));
-        let add_e = e.add(FPegL::CallPrim(
-            Prim("add".to_owned()),
-            Box::new([x_e, y_e]),
-        ));
-        let lit2_e = e.add(FPegL::Literal(Const::Word(WordSize::W32, 2)));
-        let _ = e.add(FPegL::CallPrim(
-            Prim("mul".to_owned()),
-            Box::new([lit2_e, add_e]),
-        ));
+    fn test_datatype_from_con() {
+        let datatypes: Vec<MltDatatype> = make_test_datatypes();
 
-        assert_eq!(
-            e.to_string(),
-            "(Prim<mul> \"Lit<0x2 : word32>\" (Prim<add> \"Param<x : word32>\" \"Param<y : word32>\"))"
-        );
+        let con = MltConstructorId::from("cons_0");
+        let dt = FPeg::datatype_from_con(&datatypes, &con).unwrap();
+        assert_eq!(dt.tycon, "list_0");
 
-        let mut egraph: EGraph<FPegL, ()> = EGraph::default();
-        let e_id = egraph.add_expr(&e);
-        egraph.rebuild();
+        let con = MltConstructorId::from("nil_0");
+        let dt = FPeg::datatype_from_con(&datatypes, &con).unwrap();
+        assert_eq!(dt.tycon, "list_0");
 
-        assert_eq!(Some(e_id), egraph.lookup_expr(&e));
+        let con = MltConstructorId::from("nonexistent");
+        let dt = FPeg::datatype_from_con(&datatypes, &con);
+        assert!(dt.is_none());
+    }
 
-        let e_parsed: RecExpr<FPegL> =
-            "(Prim<mul> \"Lit<0x2 : word32>\" (Prim<add> \"Param<x : word32>\" \"Param<y : word32>\"))"
-                .parse()
-                .unwrap();
-        assert_eq!(Some(e_id), egraph.lookup_expr(&e_parsed));
+    #[test]
+    fn test_make_region() {
+        let mut fpeg = make_test_fpeg();
+        let datatypes: Vec<MltDatatype> = make_test_datatypes();
+
+        let scope = HashMap::<MltVarId, SmlType>::from([
+            ("x".into(), SmlType::Word(WordSize::W64)),
+            ("y".into(), SmlType::Word(WordSize::W64)),
+            ("xs".into(), SmlType::Datatype("list_0".into())),
+        ]);
+
+        let e1 = MltExp::ConApp {
+            con: "cons_0".into(),
+            args: vec!["x".into(), "xs".into()],
+        };
+
+        let r1 = fpeg.make_region(&datatypes, &scope, &e1);
+        assert!(r1.is_some());
+
+        let e2 = MltExp::PrimApp {
+            prim: MltPrim::make_pure_sml("add_w64"),
+            targs: None,
+            args: vec!["x".into(), "y".into()],
+        };
+
+        let r2 = fpeg.make_region(&datatypes, &scope, &e2);
+        assert!(r2.is_some());
+
+        assert_eq!(fpeg.egraph.number_of_classes(), 5);
+        assert_eq!(fpeg.egraph.total_number_of_nodes(), 5);
     }
 }

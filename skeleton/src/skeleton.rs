@@ -5,39 +5,21 @@ use std::hash::Hash;
 
 use e_graph::fpeg::{FPeg, Region};
 
-use mlton_ssa::ssa::{ConstructorId, FunctionId, Label, RealSize, SmlType, Var, VarId, WordSize};
+use mlton_ssa::ssa::{
+    Cases, Datatype, Exp as MltExp, FunctionId, Label, Return, SmlType, Var, VarId,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum SkHandler {
-    Caller,
-    Dead,
-    Handle { habler: Label },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) enum SkReturn {
-    Dead,
-    NonTail { cont_id: Label, handler: SkHandler },
-    Tail,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum SkCases {
-    Con(Vec<(ConstructorId, Label)>),
-    Word(WordSize, Vec<(u64, Label)>),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) enum SkTransfer {
+pub enum SkTransfer {
     Bug,
     Call {
         func: FunctionId,
         args: Vec<Region>,
-        ret: SkReturn,
+        ret: Return,
     },
     Case {
         test: Region,
-        cases: SkCases,
+        cases: Cases,
         default: Option<Label>,
     },
     Goto {
@@ -50,6 +32,7 @@ pub(crate) enum SkTransfer {
     Return {
         args: Vec<Region>,
     },
+    Runtime,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -60,28 +43,54 @@ pub(crate) struct Block {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct SkFunc {
-    args: Vec<Region>,
-    blocks: Vec<Block>,
-    may_inline: bool,
-    name: FunctionId,
-    raises: Option<Vec<SmlType>>,
-    returns: Option<Vec<SmlType>>,
-    start: Label,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct Datatype {
-    tycons: String,
-    constructors: Vec<(ConstructorId, Vec<SmlType>)>,
+pub struct Function {
+    pub(crate) args: Vec<Region>,
+    pub(crate) blocks: Vec<Block>,
+    pub(crate) may_inline: bool,
+    pub(crate) name: FunctionId,
+    pub(crate) raises: Option<Vec<SmlType>>,
+    pub(crate) returns: Option<Vec<SmlType>>,
+    pub(crate) start: Label,
 }
 
 #[derive(Debug, Clone)]
 pub struct Skeleton {
-    datatyeps: Vec<Datatype>,
-    globals: Vec<Region>,
-    functions: Vec<SkFunc>,
-    graph: FPeg,
-    main: FunctionId,
-    curr_id_gen: u64,
+    pub datatypes: Vec<Datatype>,
+    pub globals: Vec<Region>,
+    pub functions: Vec<Function>,
+    pub(crate) graph: FPeg,
+    pub main: FunctionId,
+}
+
+impl Default for Skeleton {
+    fn default() -> Self {
+        Self {
+            datatypes: vec![],
+            globals: vec![],
+            functions: vec![],
+            graph: FPeg::new(),
+            main: "(* Bug *)".to_string(),
+        }
+    }
+}
+
+impl Skeleton {
+    pub fn insert_exp(&mut self, scope: &HashMap<VarId, SmlType>, exp: &MltExp) -> Option<Region> {
+        self.graph.make_region(&self.datatypes, scope, exp)
+    }
+
+    pub fn insert_arg(&mut self, var: &Var) -> Region {
+        if let SmlType::Datatype(dt) = &var.ty {
+            assert!(self.datatypes.iter().any(|d| &d.tycon == dt));
+        }
+        let scope = HashMap::from([(var.name.clone(), var.ty.clone())]);
+        self.graph
+            .make_region(&self.datatypes, &scope, &MltExp::Var(var.name.clone()))
+            .unwrap_or_else(|| {
+                panic!(
+                    "Failed to insert function argument region for var {:?}",
+                    var
+                )
+            })
+    }
 }

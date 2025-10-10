@@ -71,9 +71,7 @@ pub fn string_printer<'a, T: PrettyDoc>(obj: &'a T) -> RcDoc<'a> {
         .replace('\n', "\\n")
         .replace('\r', "\\r")
         .replace('\t', "\\t");
-    RcDoc::text("\"")
-        .append(obj_s)
-        .append(RcDoc::text("\""))
+    RcDoc::text("\"").append(obj_s).append(RcDoc::text("\""))
 }
 
 pub fn option_printer<'a, T: PrettyDoc>(obj: &'a Option<T>) -> RcDoc<'a> {
@@ -81,6 +79,16 @@ pub fn option_printer<'a, T: PrettyDoc>(obj: &'a Option<T>) -> RcDoc<'a> {
         Some(v) => RcDoc::text("Some")
             .append(RcDoc::space())
             .append(v.to_doc()),
+        None => RcDoc::text("None"),
+    }
+}
+
+pub fn option_printer_apply<'a, T: PrettyDoc>(
+    f: impl Fn(&'a T) -> RcDoc<'a>,
+    obj: &'a Option<T>,
+) -> RcDoc<'a> {
+    match obj {
+        Some(v) => RcDoc::text("Some").append(RcDoc::space()).append(f(v)),
         None => RcDoc::text("None"),
     }
 }
@@ -118,9 +126,29 @@ pub fn paren_doc_list_printer<'a>(items: &'a Vec<RcDoc<'a>>) -> RcDoc<'a> {
         .group()
 }
 
-pub fn paren_list_printer<'a, T: PrettyDoc>(items: &'a Vec<T>) -> RcDoc<'a> {
+pub fn paren_list_printer<'a, T, C>(items: C) -> RcDoc<'a>
+where
+    T: PrettyDoc + 'a,
+    C: IntoIterator<Item = &'a T>,
+{
     let items_doc = RcDoc::intersperse(
         items.into_iter().map(|item| item.to_doc()),
+        RcDoc::text(",").append(RcDoc::line()),
+    );
+    RcDoc::text("(")
+        .append(RcDoc::softline().append(items_doc).nest(2))
+        .append(RcDoc::softline())
+        .append(RcDoc::text(")"))
+        .group()
+}
+
+pub fn paren_list_printer_apply<'a, T, C>(f: impl Fn(&'a T) -> RcDoc<'a>, items: C) -> RcDoc<'a>
+where
+    T: 'a,
+    C: IntoIterator<Item = &'a T>,
+{
+    let items_doc = RcDoc::intersperse(
+        items.into_iter().map(|item| f(item)),
         RcDoc::text(",").append(RcDoc::line()),
     );
     RcDoc::text("(")
@@ -199,11 +227,7 @@ mod tests {
 
     #[test]
     fn test_paren_list_printer() {
-        let items = vec![
-            "item1",
-            "item2",
-            "item3",
-        ];
+        let items = vec!["item1", "item2", "item3"];
         let doc = paren_list_printer(&items);
         let mut w = Vec::new();
         doc.render(80, &mut w).unwrap();

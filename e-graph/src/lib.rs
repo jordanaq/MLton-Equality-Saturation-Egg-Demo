@@ -1,2 +1,3 @@
 pub mod fpeg;
-mod parse;
+pub mod parse;
+mod print;

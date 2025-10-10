@@ -1,4 +1,9 @@
-use std::{collections::{HashMap, HashSet}, str::FromStr};
+use std::{
+    collections::{HashMap, HashSet},
+    str::FromStr,
+};
+
+use ordered_float::OrderedFloat;
 
 use nom::{
     IResult, Parser,
@@ -59,7 +64,7 @@ impl FromStr for RealSize {
     }
 }
 
-fn parse_wordsize(s: &str) -> IResult<&str, WordSize> {
+pub fn parse_wordsize(s: &str) -> IResult<&str, WordSize> {
     let (rest, sz) = alt((tag("w8"), tag("w16"), tag("w32"), tag("w64"))).parse(s)?;
 
     match sz {
@@ -166,7 +171,7 @@ impl FromStr for SmlType {
     }
 }
 
-fn parse_sml_types(s: &str) -> IResult<&str, Vec<SmlType>> {
+pub fn parse_sml_types(s: &str) -> IResult<&str, Vec<SmlType>> {
     paren_list_parser(parse_sml_type).parse(s)
 }
 
@@ -220,21 +225,11 @@ impl FromStr for Datatype {
     }
 }
 
-fn parse_datatypes(s: &str) -> IResult<&str, HashMap<SmlType, Datatype>> {
-    let (rest, dtypes) = paren_list_parser(parse_datatype).parse(s)?;
-
-    Ok((
-        rest,
-        dtypes
-            .into_iter()
-            .map(
-                |dt| (SmlType::Datatype(dt.tycon.clone()), dt), /* TODO */
-            )
-            .collect(),
-    ))
+pub fn parse_datatypes(s: &str) -> IResult<&str, Vec<Datatype>> {
+    paren_list_parser(parse_datatype).parse(s)
 }
 
-fn parse_var_name(s: &str) -> IResult<&str, VarId> {
+pub fn parse_var_name(s: &str) -> IResult<&str, VarId> {
     let (rest, var) = alt((
         complete(take_while1(|c: char| {
             c.is_alphanumeric() || "'_".contains(c)
@@ -281,7 +276,7 @@ fn parse_const_null(s: &str) -> IResult<&str, Const> {
     Ok((rest, Const::Null))
 }
 
-fn parse_real(s: &str) -> IResult<&str, (f64, RealSize)> {
+fn parse_real(s: &str) -> IResult<&str, (OrderedFloat<f64>, RealSize)> {
     let (rest, (r, sz)) = (
         (
             take_while1(|c: char| c.is_digit(10)),
@@ -296,7 +291,7 @@ fn parse_real(s: &str) -> IResult<&str, (f64, RealSize)> {
         (int_part, None) => int_part.parse().unwrap(),
     };
 
-    Ok((rest, (r, sz)))
+    Ok((rest, (OrderedFloat(r), sz)))
 }
 
 fn parse_const_real(s: &str) -> IResult<&str, Const> {
@@ -613,7 +608,7 @@ impl FromStr for PrimKind {
     }
 }
 
-fn parse_prim(s: &str) -> IResult<&str, Prim> {
+pub fn parse_prim(s: &str) -> IResult<&str, Prim> {
     let (rest, (p, k)) = named_object_parser(
         "primitive",
         (
@@ -621,9 +616,7 @@ fn parse_prim(s: &str) -> IResult<&str, Prim> {
                 "prim",
                 alt((
                     parse_cfunction,
-                    map(parse_string, |id | {
-                        PrimPrimitive::SmlPrim(id.trim().into())
-                    }),
+                    map(parse_string, |id| PrimPrimitive::SmlPrim(id.trim().into())),
                 )),
             ),
             parse_key_field("kind", parse_prim_kind),
@@ -751,7 +744,7 @@ fn parse_transfer_call_dead(s: &str) -> IResult<&str, Transfer> {
     ))
 }
 
-fn parse_transfer_call_non_tail_handler(s: &str) -> IResult<&str, Handler> {
+pub fn parse_transfer_call_non_tail_handler(s: &str) -> IResult<&str, Handler> {
     let (rest, h) = alt((
         named_object_parser("handler::Caller", multispace0()).map(|_| Handler::Caller),
         named_object_parser("handler::Dead", multispace0()).map(|_| Handler::Dead),
@@ -765,7 +758,6 @@ fn parse_transfer_call_non_tail_handler(s: &str) -> IResult<&str, Handler> {
 
     Ok((rest, h))
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ParseHandlerErr;
@@ -843,8 +835,10 @@ fn parse_transfer_case_con_con(s: &str) -> IResult<&str, (ConstructorId, Label)>
     .parse(s)
 }
 
-fn parse_cases_con(s: &str) -> IResult<&str, Cases> {
-    paren_list_parser(parse_transfer_case_con_con).map(Cases::Con).parse(s)
+pub fn parse_cases_con(s: &str) -> IResult<&str, Cases> {
+    paren_list_parser(parse_transfer_case_con_con)
+        .map(Cases::Con)
+        .parse(s)
 }
 
 fn parse_transfer_case_con(s: &str) -> IResult<&str, Transfer> {
@@ -874,13 +868,26 @@ fn parse_transfer_case_word_con(s: &str) -> IResult<&str, ((u64, WordSize), Labe
     separated_pair(parse_word, tagify_parser(tag("=>")), parse_var_name).parse(s)
 }
 
-fn parse_cases_word(s: &str) -> IResult<&str, Cases> {
+pub fn parse_cases_word(s: &str) -> IResult<&str, Cases> {
     let (rest, cases) = paren_list_parser(parse_transfer_case_word_con).parse(s)?;
-    
-    assert!(cases.iter().map(|((_, sz), _)| sz.clone()).collect::<HashSet<WordSize>>().len() <= 1);
+
+    assert!(
+        cases
+            .iter()
+            .map(|((_, sz), _)| sz.clone())
+            .collect::<HashSet<WordSize>>()
+            .len()
+            <= 1
+    );
 
     if let Some(((_, ws), _)) = cases.first() {
-        Ok((rest, Cases::Word(ws.clone(), cases.into_iter().map(|(w, l)| (w.0, l)).collect())))
+        Ok((
+            rest,
+            Cases::Word(
+                ws.clone(),
+                cases.into_iter().map(|(w, l)| (w.0, l)).collect(),
+            ),
+        ))
     } else {
         Ok((rest, Cases::Word(WordSize::W8, vec![])))
     }
@@ -1265,9 +1272,9 @@ mod test {
 
         let s = r#"
         datatype {
-  tycon = "list_0",
-  cons = ( ( ::_0, ( (< Datatype ( "list_0" ) >), (< Tuple ( Word ( w8 ), Word ( w8 ) ) >) ) ), ( nil_1, (  ) ) )
-}
+          tycon = "list_0",
+          cons = ( ( ::_0, ( (< Datatype ( "list_0" ) >), (< Tuple ( Word ( w8 ), Word ( w8 ) ) >) ) ), ( nil_1 ) )
+        }
         "#;
 
         let (rest, dt) = parse_datatype(s).unwrap();
@@ -1303,9 +1310,7 @@ mod test {
         assert_eq!(rest.trim(), "");
         assert_eq!(dts.len(), 6);
 
-        let key = SmlType::Datatype("list_0".to_string());
-        assert!(dts.contains_key(&key));
-        assert_eq!(dts.get(&key).unwrap().constrs.len(), 2);
+        assert_eq!(dts[0].tycon, "list_4".to_string());
     }
 
     #[test]
@@ -1399,7 +1404,7 @@ mod test {
         let s = r#"const::Real { const = 3.14:r32 }"#;
         let (rest, exp) = parse_const_real(s).unwrap();
         assert_eq!(rest, "");
-        assert_eq!(exp, Const::Real(RealSize::R32, 3.14));
+        assert_eq!(exp, Const::Real(RealSize::R32, OrderedFloat::<f64>(3.14)));
     }
 
     #[test]
@@ -1425,7 +1430,10 @@ mod test {
         let s = r#"exp::Const { const = const::Real { const = 3.14:r32 } }"#;
         let (rest, exp) = parse_exp_const(s).unwrap();
         assert_eq!(rest, "");
-        assert_eq!(exp, Exp::Const(Const::Real(RealSize::R32, 3.14)));
+        assert_eq!(
+            exp,
+            Exp::Const(Const::Real(RealSize::R32, OrderedFloat::<f64>(3.14)))
+        );
 
         let s = r#"exp::Const { const = const::WordVector { const = "Overflow"} }"#;
         let (rest, exp) = parse_exp_const(s).unwrap();

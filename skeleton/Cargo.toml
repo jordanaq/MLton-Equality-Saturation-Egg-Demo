@@ -7,5 +7,6 @@ edition = "2024"
 e-graph = { path = "../e-graph" }
 mlton_ssa = { path = "../mlton_ssa" }
 parse_utils = { path = "../parse_utils" }
+print_utils = { path = "../print_utils" }
 nom = "8"
 bimap = "0.6"

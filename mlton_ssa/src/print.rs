@@ -1,12 +1,9 @@
-use std::fmt::format;
-use std::rc::Rc;
 use std::{fmt::Display, vec};
 
 use pretty::RcDoc;
 
 use print_utils::*;
 
-use crate::parse::*;
 use crate::ssa::*;
 
 impl PrettyDoc for RealSize {
@@ -46,7 +43,9 @@ impl SmlType {
         match self {
             SmlType::Array(ty) => named_tuple_printer("Array", vec![ty.to_doc_raw()]),
             SmlType::CPointer => RcDoc::text("CPointer"),
-            SmlType::Datatype(tycon) => named_tuple_printer("Datatype", vec![string_printer(tycon)]),
+            SmlType::Datatype(tycon) => {
+                named_tuple_printer("Datatype", vec![string_printer(tycon)])
+            }
             SmlType::IntInf => RcDoc::text("IntInf"),
             SmlType::Real(rs) => named_tuple_printer("Real", vec![rs.to_doc()]),
             SmlType::Ref(ty) => named_tuple_printer("Ref", vec![ty.to_doc_raw()]),
@@ -148,7 +147,7 @@ impl PrettyDoc for Const {
             ),
             Const::Word(ws, w) => named_object_printer(
                 "const::Word",
-                vec![("const", RcDoc::text(format!("{:#x}:{}", w, ws)))],
+                vec![("const", RcDoc::text(format!("{:#X}:{}", w, ws)))],
             ),
             Const::WordVector(s) => named_object_printer(
                 "const::WordVector",
@@ -266,7 +265,7 @@ impl PrettyDoc for PrimPrimitive {
             } => named_object_printer(
                 "CFunction",
                 vec![
-                    ("args", paren_list_printer(&args)),
+                    ("args", paren_list_printer(args)),
                     ("convention", convention.to_doc()),
                     ("inline", RcDoc::text(inline.to_string())),
                     ("kind", kind.to_doc()),
@@ -331,7 +330,7 @@ impl PrettyDoc for Exp {
                     Some(ts) => vec![
                         ("prim", prim.to_doc()),
                         ("args", paren_string_list_printer(args)),
-                        ("targs", paren_list_printer(&ts)),
+                        ("targs", paren_list_printer(ts)),
                     ],
                 },
             ),
@@ -382,8 +381,9 @@ impl PrettyDoc for Handler {
         match self {
             Handler::Caller => named_object_printer("handler::Caller", vec![]),
             Handler::Dead => named_object_printer("handler::Dead", vec![]),
-            Handler::Handle { label } =>
-                named_object_printer("handler::Handle", vec![("label", label.to_doc())]),
+            Handler::Handle { label } => {
+                named_object_printer("handler::Handle", vec![("label", label.to_doc())])
+            }
         }
     }
 }
@@ -397,30 +397,34 @@ impl Display for Handler {
 impl PrettyDoc for Cases {
     fn to_doc<'a>(&'a self) -> RcDoc<'a> {
         match self {
-            Cases::Con(items) =>
-                RcDoc::text("(")
-                    .append(RcDoc::softline())
-                    .append(RcDoc::intersperse(
-                        items.iter().map(|(con, lbl)| {
-                            RcDoc::text(format!("{} => {}", con, lbl))
-                        }),
+            Cases::Con(items) => RcDoc::text("(")
+                .append(RcDoc::softline())
+                .append(
+                    RcDoc::intersperse(
+                        items
+                            .iter()
+                            .map(|(con, lbl)| RcDoc::text(format!("{} => {}", con, lbl))),
                         RcDoc::text(",").append(RcDoc::line()),
-                    ).nest(2))
-                    .append(RcDoc::softline())
-                    .append(RcDoc::text(")"))
-                    .group(),
-            Cases::Word(word_size, items) =>
-                RcDoc::text("(")
-                    .append(RcDoc::softline())
-                    .append(RcDoc::intersperse(
+                    )
+                    .nest(2),
+                )
+                .append(RcDoc::softline())
+                .append(RcDoc::text(")"))
+                .group(),
+            Cases::Word(word_size, items) => RcDoc::text("(")
+                .append(RcDoc::softline())
+                .append(
+                    RcDoc::intersperse(
                         items.iter().map(|(w, lbl)| {
                             RcDoc::text(format!("{:#x}:{} => {}", w, word_size, lbl))
                         }),
                         RcDoc::text(",").append(RcDoc::line()),
-                    ).nest(2))
-                    .append(RcDoc::softline())
-                    .append(RcDoc::text(")"))
-                    .group(),
+                    )
+                    .nest(2),
+                )
+                .append(RcDoc::softline())
+                .append(RcDoc::text(")"))
+                .group(),
         }
     }
 }
@@ -435,60 +439,62 @@ impl PrettyDoc for Transfer {
     fn to_doc(&self) -> RcDoc<'_> {
         match self {
             Transfer::Bug => named_object_printer("transfer::Bug", vec![]),
-            Transfer::Call { func, args, ret } => 
-                match ret {
-                    Return::Dead =>
-                        named_object_printer(
-                            "transfer::call::Dead",
-                            vec![("func", func.to_doc()), ("args", paren_list_printer(args))]
-                        ),
-                    Return::NonTail { cont, handler } =>
-                        named_object_printer(
-                            "transfer::call::NonTail",
-                            vec![
-                                ("func", func.to_doc()),
-                                ("args", paren_list_printer(&args)),
-                                ("cont", RcDoc::text(cont.clone())),
-                                ("handler", handler.to_doc()),
-                            ]
-                        ),
-                    Return::Tail =>
-                        named_object_printer(
-                            "transfer::call::Tail",
-                            vec![("func", func.to_doc()), ("args", paren_list_printer(args))]
-                        ),
-                }
-            Transfer::Case { test, cases, default } => {
-                let (obj_name, mut key_values)  = match cases {
-                    Cases::Con(_) => ("transfer::case::Con", vec![("test", test.to_doc()), ("cases", cases.to_doc())]),
-                    Cases::Word(ws, _) => ("transfer::case::Word", vec![("test", test.to_doc()), ("size", ws.to_doc()), ("cases", cases.to_doc())]),
+            Transfer::Call { func, args, ret } => match ret {
+                Return::Dead => named_object_printer(
+                    "transfer::call::Dead",
+                    vec![("func", func.to_doc()), ("args", paren_list_printer(args))],
+                ),
+                Return::NonTail { cont, handler } => named_object_printer(
+                    "transfer::call::NonTail",
+                    vec![
+                        ("func", func.to_doc()),
+                        ("args", paren_list_printer(args)),
+                        ("cont", RcDoc::text(cont.clone())),
+                        ("handler", handler.to_doc()),
+                    ],
+                ),
+                Return::Tail => named_object_printer(
+                    "transfer::call::Tail",
+                    vec![("func", func.to_doc()), ("args", paren_list_printer(args))],
+                ),
+            },
+            Transfer::Case {
+                test,
+                cases,
+                default,
+            } => {
+                let (obj_name, mut key_values) = match cases {
+                    Cases::Con(_) => (
+                        "transfer::case::Con",
+                        vec![("test", test.to_doc()), ("cases", cases.to_doc())],
+                    ),
+                    Cases::Word(ws, _) => (
+                        "transfer::case::Word",
+                        vec![
+                            ("test", test.to_doc()),
+                            ("size", ws.to_doc()),
+                            ("cases", cases.to_doc()),
+                        ],
+                    ),
                 };
                 if let Some(d) = default {
                     key_values.push(("default", RcDoc::text(d)));
                 }
-                named_object_printer(
-                    obj_name,
-                    key_values
-                )
-            },
-            Transfer::Goto { dst, args } =>
-                named_object_printer(
-                    "transfer::Goto",
-                    vec![
-                        ("dst", RcDoc::text(dst.clone())),
-                        ("args", paren_list_printer(args)),
-                    ]
-                ),
-            Transfer::Raise { args } => 
-                named_object_printer(
-                    "transfer::Raise",
-                    vec![("args", paren_list_printer(args))]
-                ),
-            Transfer::Return { args } => 
-                named_object_printer(
-                    "transfer::Return",
-                    vec![("args", paren_list_printer(args))]
-                ),
+                named_object_printer(obj_name, key_values)
+            }
+            Transfer::Goto { dst, args } => named_object_printer(
+                "transfer::Goto",
+                vec![
+                    ("dst", RcDoc::text(dst.clone())),
+                    ("args", paren_list_printer(args)),
+                ],
+            ),
+            Transfer::Raise { args } => {
+                named_object_printer("transfer::Raise", vec![("args", paren_list_printer(args))])
+            }
+            Transfer::Return { args } => {
+                named_object_printer("transfer::Return", vec![("args", paren_list_printer(args))])
+            }
             Transfer::Runtime => todo!(),
         }
     }
@@ -526,14 +532,20 @@ impl PrettyDoc for Datatype {
             RcDoc::text("(")
                 .append(RcDoc::softline())
                 .append(RcDoc::text(&constr.0))
-                .append(RcDoc::text(","))
-                .append(RcDoc::space())
-                .append(paren_list_printer(&constr.1))
-                .nest(2)
+                .append(if constr.1.is_empty() {
+                    RcDoc::nil()
+                } else {
+                    RcDoc::text(",")
+                        .append(RcDoc::space())
+                        .append(paren_list_printer(&constr.1))
+                        .append(RcDoc::space())
+                        .nest(2)
+                })
                 .append(RcDoc::softline())
                 .append(RcDoc::text(")"))
                 .group()
         }
+
         named_object_printer(
             "datatype",
             vec![
@@ -542,13 +554,16 @@ impl PrettyDoc for Datatype {
                     "cons",
                     RcDoc::text("(")
                         .append(RcDoc::softline())
-                        .append(RcDoc::intersperse(
-                            self.constrs.iter().map(constr_printer),
-                            RcDoc::text(",").append(RcDoc::line()),
-                        ).nest(2))
+                        .append(
+                            RcDoc::intersperse(
+                                self.constrs.iter().map(constr_printer),
+                                RcDoc::text(",").append(RcDoc::line()),
+                            )
+                            .nest(2),
+                        )
                         .append(RcDoc::softline())
                         .append(RcDoc::text(")"))
-                        .group()
+                        .group(),
                 ),
             ],
         )
@@ -584,9 +599,71 @@ impl Display for Function {
     }
 }
 
+impl PrettyDoc for MltonSsa {
+    fn to_doc(&self) -> RcDoc<'_> {
+        named_object_printer(
+            "mltonssa",
+            vec![
+                (
+                    "datatypes",
+                    RcDoc::text("(")
+                        .append(RcDoc::softline())
+                        .append(
+                            RcDoc::intersperse(
+                                self.datatypes.iter().map(|d| d.to_doc()),
+                                RcDoc::text(",").append(RcDoc::line()),
+                            )
+                            .nest(2),
+                        )
+                        .append(RcDoc::softline())
+                        .append(RcDoc::text(")"))
+                        .group(),
+                ),
+                (
+                    "globals",
+                    RcDoc::text("(")
+                        .append(RcDoc::softline())
+                        .append(
+                            RcDoc::intersperse(
+                                self.globals.iter().map(|g| g.to_doc()),
+                                RcDoc::text(",").append(RcDoc::line()),
+                            )
+                            .nest(2),
+                        )
+                        .append(RcDoc::softline())
+                        .append(RcDoc::text(")"))
+                        .group(),
+                ),
+                (
+                    "functions",
+                    RcDoc::text("(")
+                        .append(RcDoc::softline())
+                        .append(
+                            RcDoc::intersperse(
+                                self.functions.iter().map(|f| f.to_doc()),
+                                RcDoc::text(",").append(RcDoc::line()),
+                            )
+                            .nest(2),
+                        )
+                        .append(RcDoc::softline())
+                        .append(RcDoc::text(")"))
+                        .group(),
+                ),
+                ("main", RcDoc::text(&self.main)),
+            ],
+        )
+    }
+}
+
+impl Display for MltonSsa {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", pretty_print(self))
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::print;
+    use ordered_float::OrderedFloat;
 
     use super::*;
 
@@ -688,16 +765,16 @@ mod tests {
         let c1 = Const::IntInf(42);
         assert_eq!(pretty_print(&c1), "const::IntInf {\n  const = 42\n}");
 
-        let c2 = Const::Real(RealSize::R32, 3.14);
+        let c2 = Const::Real(RealSize::R32, OrderedFloat::<f64>(3.14));
         assert_eq!(pretty_print(&c2), "const::Real {\n  const = 3.14:r32\n}");
 
         let c3 = Const::Word(WordSize::W16, 255);
-        assert_eq!(pretty_print(&c3), "const::Word {\n  const = 0xff:w16\n}");
+        assert_eq!(pretty_print(&c3), "const::Word {\n  const = 0xFF:w16\n}");
     }
 
     #[test]
     fn test_print_const_inverse() {
-        let c2 = Const::Real(RealSize::R32, 3.14);
+        let c2 = Const::Real(RealSize::R32, OrderedFloat::<f64>(3.14));
         assert_eq!(c2.to_string().parse(), Ok(c2));
 
         let c3 = Const::Word(WordSize::W16, 255);
@@ -930,10 +1007,16 @@ primitive {
 
     #[test]
     fn test_print_cases_inverse() {
-        let c1 = Cases::Con(vec![("::_1".to_string(), "L1".to_string()), ("::_2".to_string(), "L2".to_string())]);
+        let c1 = Cases::Con(vec![
+            ("::_1".to_string(), "L1".to_string()),
+            ("::_2".to_string(), "L2".to_string()),
+        ]);
         assert_eq!(c1.to_string().parse(), Ok(c1));
 
-        let c2 = Cases::Word(WordSize::W8, vec![(0, "L1".to_string()), (255, "L2".to_string())]);
+        let c2 = Cases::Word(
+            WordSize::W8,
+            vec![(0, "L1".to_string()), (255, "L2".to_string())],
+        );
         assert_eq!(c2.to_string().parse(), Ok(c2));
     }
 
@@ -951,14 +1034,20 @@ primitive {
 
         let t3 = Transfer::Case {
             test: "x".to_string(),
-            cases: Cases::Con(vec![("::_1".to_string(), "L1".to_string()), ("::_2".to_string(), "L2".to_string())]),
+            cases: Cases::Con(vec![
+                ("::_1".to_string(), "L1".to_string()),
+                ("::_2".to_string(), "L2".to_string()),
+            ]),
             default: Some("L3".to_string()),
         };
         assert_eq!(t3.to_string().parse(), Ok(t3));
 
         let t4 = Transfer::Case {
             test: "x".to_string(),
-            cases: Cases::Word(WordSize::W8, vec![(0, "L1".to_string()), (255, "L2".to_string())]),
+            cases: Cases::Word(
+                WordSize::W8,
+                vec![(0, "L1".to_string()), (255, "L2".to_string())],
+            ),
             default: None,
         };
         assert_eq!(t4.to_string().parse(), Ok(t4));
@@ -1008,7 +1097,7 @@ primitive {
                         },
                         targs: None,
                         args: vec!["global_37".to_string()],
-                    }
+                    },
                 },
                 Statement {
                     var: Some("global_0".to_string()),
@@ -1032,14 +1121,12 @@ primitive {
             start: "L_52".to_string(),
             returns: None,
             raises: None,
-            blocks: vec![
-                Block {
-                    label: "L_52".to_string(),
-                    args: vec![],
-                    statements: vec![],
-                    transfer: Transfer::Return { args: vec![] },
-                } 
-            ],
+            blocks: vec![Block {
+                label: "L_52".to_string(),
+                args: vec![],
+                statements: vec![],
+                transfer: Transfer::Return { args: vec![] },
+            }],
         };
         assert_eq!(f.to_string().parse(), Ok(f));
     }
@@ -1049,11 +1136,77 @@ primitive {
         let dt = Datatype {
             tycon: "list_0".to_string(),
             constrs: vec![
-                ("::_0".to_string(), vec![SmlType::Datatype("list_0".to_string()), SmlType::Tuple(vec![SmlType::Word(WordSize::W8), SmlType::Word(WordSize::W8)])]),
+                (
+                    "::_0".to_string(),
+                    vec![
+                        SmlType::Datatype("list_0".to_string()),
+                        SmlType::Tuple(vec![
+                            SmlType::Word(WordSize::W8),
+                            SmlType::Word(WordSize::W8),
+                        ]),
+                    ],
+                ),
                 ("nil_1".to_string(), vec![]),
             ],
         };
-        println!("{}", dt.to_string());
         assert_eq!(dt.to_string().parse(), Ok(dt));
+    }
+
+    #[test]
+    fn test_print_mlton_ssa_inverse() {
+        let s = r#"mltonssa {
+        datatypes = (
+            datatype {tycon = "list_4", cons = (( dummy_0 ))},
+            datatype {tycon = "list_3",
+                      cons = (( nil_0 ),
+                              ( ::_2, ((< Datatype( "list_3" ) >)) ))}
+        ),
+        globals = (
+            statement {var = Some global_0,
+                       type = (< Vector( Word( w8 ) ) >),
+                       exp = exp::Const {const = const::WordVector {const = "unhandled exception: "}}},
+            statement {var = Some global_1,
+                       type = (< Vector( Word( w8 ) ) >),
+                       exp = exp::Const {const = const::WordVector {const = "Overflow"}}}
+        ),
+        functions = (
+            function {name = "main_0",
+                      mayInline = false,
+                      args = (),
+                      start = L_52,
+                      returns = None,
+                      raises = None,
+                      blocks = (block {label = L_52,
+                                       args = (),
+                                       statements = (),
+                                       transfer = transfer::Goto {dst = loop_5,
+                                                                  args = (global_41,
+                                                                          global_8,
+                                                                          global_9)}})},
+            function {name = "exit_0",
+                      mayInline = true,
+                      args = (x_3: (< Word( w32 ) >),
+                              x_2: (< Array( Word( w8 ) ) >),
+                              x_1: (< Ref( Datatype( "bool" ) ) >),
+                              x_0: (< Ref( Datatype( "bool" ) ) >)),
+                      start = L_0,
+                      returns = None,
+                      raises = Some (),
+                      blocks = (block {label = L_0,
+                                       args = (),
+                                       statements = (statement {var = Some x_76,
+                                                                type = (< Datatype( "bool" ) >),
+                                                                exp = exp::PrimApp {prim = primitive {prim = "Ref_deref",
+                                                                                                      kind = DependsOnState},
+                                                                                    args = (x_0),
+                                                                                    targs = ((< Datatype( "bool" ) >))}}),
+                                       transfer = transfer::case::Con {test = x_76,
+                                                                       cases =   (true => L_51,
+                                                                                  false => L_50)}})}
+        ),
+        main = main_0,
+        }"#;
+        let ssa: MltonSsa = s.parse().unwrap();
+        assert_eq!(ssa.to_string().parse(), Ok(ssa));
     }
 }

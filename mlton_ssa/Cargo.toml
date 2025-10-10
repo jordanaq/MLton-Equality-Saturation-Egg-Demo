@@ -8,3 +8,4 @@ nom = "8"
 parse_utils = { path = "../parse_utils" }
 print_utils = { path = "../print_utils" }
 pretty = "0.12"
+ordered-float = "5.1"

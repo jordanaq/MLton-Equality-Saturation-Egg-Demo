@@ -1,7 +1,7 @@
 use nom::{
     AsChar, IResult, Parser,
     branch::alt,
-    bytes::{complete::tag, take_till, take_until, take_while1, escaped_transform, is_not},
+    bytes::{complete::tag, escaped_transform, is_not, take_till, take_until, take_while1},
     character::multispace0,
     combinator::{complete, map},
     error::ParseError,
@@ -28,21 +28,23 @@ pub fn parse_string(input: &str) -> IResult<&str, String> {
     alt((
         tag(r#""""#).map(|_| "".to_string()),
         delimited(
-        tag("\""),
-        escaped_transform(
-            is_not("\\\""),
-            '\\',
-            alt((
-                tag("\"").map(|_| "\""),
-                tag("n").map(|_| "\n"),
-                tag("t").map(|_| "\t"),
-                tag("\\").map(|_| "\\"),
-                tag("r").map(|_| "\r"),
-                tag("0").map(|_| "\0"),
-            )),
+            tag("\""),
+            escaped_transform(
+                is_not("\\\""),
+                '\\',
+                alt((
+                    tag("\"").map(|_| "\""),
+                    tag("n").map(|_| "\n"),
+                    tag("t").map(|_| "\t"),
+                    tag("\\").map(|_| "\\"),
+                    tag("r").map(|_| "\r"),
+                    tag("0").map(|_| "\0"),
+                )),
+            ),
+            tag("\""),
         ),
-        tag("\""),
-    ))).parse(input)
+    ))
+    .parse(input)
 }
 
 pub fn parse_key_field<'a, V: 'a, FV>(
