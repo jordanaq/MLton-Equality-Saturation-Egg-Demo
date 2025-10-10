@@ -116,6 +116,7 @@ pub enum CFunctionSymbolScope {
     Public,
 }
 
+// TODO: Probably need a better prim representation, an enum over all prims
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum PrimPrimitive {
     CFunction {
