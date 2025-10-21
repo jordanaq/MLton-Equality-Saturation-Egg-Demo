@@ -170,7 +170,7 @@ pub fn parse_fpeg(s: &str) -> IResult<&str, FPeg> {
         parse_key_field("egraph", paren_list_parser(parse_eclass)),
     ))
 
-    
+
 }
 */
 
@@ -181,7 +181,7 @@ pub fn parse_fpeg(s: &str) -> IResult<&str, FPeg> {
 #[cfg(test)]
 mod tests {
     use mlton_ssa::ssa::{
-        self, Cases, Const, FunctionId, Label, PrimPrimitive, Return, SmlType, VarId, WordSize
+        self, Cases, Const, FunctionId, Label, PrimPrimitive, Return, SmlType, VarId, WordSize,
     };
 
     use crate::fpeg::PrimWrapper;

@@ -1,7 +1,7 @@
 use nom::{
     AsChar, IResult, Parser,
     branch::alt,
-    bytes::{complete::tag, escaped_transform, is_not, take_till, take_until, take_while1},
+    bytes::{complete::tag, escaped_transform, is_not, take_until, take_while1},
     character::multispace0,
     combinator::{complete, map},
     error::ParseError,
@@ -61,8 +61,8 @@ where
         ),
         value_parser,
         alt((
-            (multispace0(), tag(",")).map(|_| ""),
-            take_until("}").map(|_| ""),
+            preceded(multispace0(), tag(",")),
+            take_until("}")
         )),
     )
 }
@@ -258,5 +258,26 @@ mod tests {
                 .unwrap();
         assert_eq!(rest, " ");
         assert_eq!(res, ("x", "y"));
+    }
+
+    #[test]
+    fn test_named_object_parser() {
+        let s = r#"
+            Object {
+                field1 = "value1"  ,
+                field2 = 42
+            }
+        "#;
+        let (_rest, (f1, f2)) = named_object_parser(
+            "Object",
+            (
+                parse_key_field("field1", parse_string),
+                parse_key_field("field2", word()),
+            ),
+        )
+        .parse(s)
+        .unwrap();
+        assert_eq!(f1, "value1");
+        assert_eq!(f2, "42");
     }
 }

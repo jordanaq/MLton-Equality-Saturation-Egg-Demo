@@ -1,5 +1,5 @@
 use egg::{Analysis, DidMerge, EGraph};
-use mlton_ssa::ssa::{Const, PrimPrimitive, SmlType, WordSize};
+use mlton_ssa::ssa::{Const, Prim, SmlType, WordSize};
 
 use crate::fpeg::{FPegL, PrimWrapper, Region};
 
@@ -13,9 +13,7 @@ impl Analysis<FPegL> for TypeAnalysis {
 
     fn make(egraph: &mut EGraph<FPegL, Self>, enode: &FPegL) -> Self::Data {
         match enode {
-            FPegL::PrimApp(prim_wrapper, _) => {
-                prim_result_type(prim_wrapper)
-            }
+            FPegL::PrimApp(prim_wrapper, _) => prim_result_type(prim_wrapper),
             FPegL::Construct(constr, ids) => todo!(),
             FPegL::Select([tuple_id, offset_id]) => {
                 let tup_ty = match egraph[*tuple_id].data.clone() {
@@ -29,7 +27,7 @@ impl Analysis<FPegL> for TypeAnalysis {
                     SmlType::Tuple(tup) => tup.get(idx).cloned(),
                     _ => None,
                 }
-            },
+            }
             FPegL::Tuple(ids) => todo!(),
             FPegL::Literal(_) => todo!(),
             FPegL::Arg(_) => todo!(),
@@ -39,7 +37,7 @@ impl Analysis<FPegL> for TypeAnalysis {
     fn merge(&mut self, to: &mut Self::Data, from: Self::Data) -> DidMerge {
         if let Some(from_ty) = from {
             if let Some(ex_ty) = to {
-                assert_eq!(&from_ty, ex_ty);   
+                assert_eq!(&from_ty, ex_ty);
                 DidMerge(false, false)
             } else {
                 *to = Some(from_ty);
@@ -54,7 +52,7 @@ impl Analysis<FPegL> for TypeAnalysis {
 fn prim_result_type(wrapper: &PrimWrapper) -> Option<SmlType> {
     match &wrapper.prim.prim {
         PrimPrimitive::CFunction { ret, .. } => Some(ret.clone()),
-        PrimPrimitive::SmlPrim(prim) => todo!()
+        PrimPrimitive::SmlPrim(prim) => todo!(),
     }
 }
 

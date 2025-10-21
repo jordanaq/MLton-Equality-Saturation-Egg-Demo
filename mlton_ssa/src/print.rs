@@ -163,23 +163,6 @@ impl Display for Const {
     }
 }
 
-impl PrettyDoc for PrimKind {
-    fn to_doc(&self) -> RcDoc<'_> {
-        match self {
-            PrimKind::DependsOnState => RcDoc::text("DependsOnState"),
-            PrimKind::Functional => RcDoc::text("Functional"),
-            PrimKind::Moveable => RcDoc::text("Moveable"),
-            PrimKind::SideEffect => RcDoc::text("SideEffect"),
-        }
-    }
-}
-
-impl Display for PrimKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", pretty_print(self))
-    }
-}
-
 impl PrettyDoc for CFunctionKind {
     fn to_doc(&self) -> RcDoc<'_> {
         match self {
@@ -250,46 +233,28 @@ impl Display for CFunctionSymbolScope {
     }
 }
 
-impl PrettyDoc for PrimPrimitive {
-    fn to_doc(&self) -> RcDoc<'_> {
-        match self {
-            PrimPrimitive::CFunction {
-                args,
-                convention,
-                inline,
-                kind,
-                prototype,
-                ret,
-                symbol_scope,
-                target,
-            } => named_object_printer(
-                "CFunction",
-                vec![
-                    ("args", paren_list_printer(args)),
-                    ("convention", convention.to_doc()),
-                    ("inline", RcDoc::text(inline.to_string())),
-                    ("kind", kind.to_doc()),
-                    (
-                        "prototype",
-                        named_object_printer(
-                            "prototype",
-                            vec![
-                                ("args", paren_list_printer(&prototype.0)),
-                                ("res", prototype.1.to_doc()),
-                            ],
-                        ),
-                    ),
-                    ("return", ret.to_doc()),
-                    ("symbolScope", symbol_scope.to_doc()),
-                    ("target", target.to_doc()),
-                ],
-            ),
-            PrimPrimitive::SmlPrim(prim) => string_printer(prim),
-        }
+impl PrettyDoc for CFunction {
+    fn to_doc<'a>(&'a self) -> RcDoc<'a> {
+        named_object_printer(
+            "CFunction",
+            vec![
+                ("args", paren_list_printer(&self.args)),
+                ("convention", self.convention.to_doc()),
+                ("inline", RcDoc::text(self.inline.to_string())),
+                ("kind", self.kind.to_doc()),
+                ("prototype", named_object_printer("prototype", vec![
+                    ("args", paren_list_printer(&self.prototype.0)),
+                    ("res", self.prototype.1.to_doc()),
+                ])),
+                ("return", self.ret.to_doc()),
+                ("symbolScope", self.symbol_scope.to_doc()),
+                ("target", self.target.to_doc()),
+            ],
+        )
     }
 }
 
-impl Display for PrimPrimitive {
+impl Display for CFunction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", pretty_print(self))
     }
@@ -297,10 +262,262 @@ impl Display for PrimPrimitive {
 
 impl PrettyDoc for Prim {
     fn to_doc(&self) -> RcDoc<'_> {
-        named_object_printer(
-            "primitive",
-            vec![("prim", self.prim.to_doc()), ("kind", self.kind.to_doc())],
-        )
+        match self {
+            Prim::ArrayAlloc { raw } => named_object_printer(
+                "prim::ArrayAlloc",
+                vec![("raw", RcDoc::text(raw.to_string()))],
+            ),
+            Prim::ArrayArray => named_object_printer("prim::ArrayArray", vec![]),
+            Prim::ArrayCopyArray => named_object_printer("prim::ArrayCopyArray", vec![]),
+            Prim::ArrayCopyVector => named_object_printer("prim::ArrayCopyVector", vec![]),
+            Prim::ArrayLength => named_object_printer("prim::ArrayLength", vec![]),
+            Prim::ArraySub => named_object_printer("prim::ArraySub", vec![]),
+            Prim::ArrayToArray => named_object_printer("prim::ArrayToArray", vec![]),
+            Prim::ArrayToVector => named_object_printer("prim::ArrayToVector", vec![]),
+            Prim::ArrayUninit => named_object_printer("prim::ArrayUninit", vec![]),
+            Prim::ArrayUninitIsNop => named_object_printer("prim::ArrayUninitIsNop", vec![]),
+            Prim::ArrayUpdate => named_object_printer("prim::ArrayUpdate", vec![]),
+
+            Prim::CFunction(c) => named_object_printer(
+                "prim::CFunction",
+                vec![("func", c.to_doc())],
+            ),
+
+            Prim::CPointerAdd => named_object_printer("prim::CPointerAdd", vec![]),
+            Prim::CPointerDiff => named_object_printer("prim::CPointerDiff", vec![]),
+            Prim::CPointerEqual => named_object_printer("prim::CPointerEqual", vec![]),
+            Prim::CPointerFromWord => named_object_printer("prim::CPointerFromWord", vec![]),
+            Prim::CPointerGetCPointer => named_object_printer("prim::CPointerGetCPointer", vec![]),
+            Prim::CPointerGetObjptr => named_object_printer("prim::CPointerGetObjptr", vec![]),
+            Prim::CPointerGetReal(sz) => {
+                named_object_printer("prim::CPointerGetReal", vec![("size", sz.to_doc())])
+            }
+            Prim::CPointerGetWord(sz) => {
+                named_object_printer("prim::CPointerGetWord", vec![("size", sz.to_doc())])
+            }
+            Prim::CPointerLt => named_object_printer("prim::CPointerLt", vec![]),
+            Prim::CPointerSetCPointer => named_object_printer("prim::CPointerSetCPointer", vec![]),
+            Prim::CPointerSetObjptr => named_object_printer("prim::CPointerSetObjptr", vec![]),
+            Prim::CPointerSetReal(sz) => {
+                named_object_printer("prim::CPointerSetReal", vec![("size", sz.to_doc())])
+            }
+            Prim::CPointerSetWord(sz) => {
+                named_object_printer("prim::CPointerSetWord", vec![("size", sz.to_doc())])
+            }
+            Prim::CPointerSub => named_object_printer("prim::CPointerSub", vec![]),
+            Prim::CPointerToWord => named_object_printer("prim::CPointerToWord", vec![]),
+
+            Prim::ExnExtra => named_object_printer("prim::ExnExtra", vec![]),
+            Prim::ExnName => named_object_printer("prim::ExnName", vec![]),
+            Prim::ExnSetExtendExtra => named_object_printer("prim::ExnSetExtendExtra", vec![]),
+
+            Prim::GCCollect => named_object_printer("prim::GCCollect", vec![]),
+            Prim::GCState => named_object_printer("prim::GCState", vec![]),
+
+            Prim::IntInfAdd => named_object_printer("prim::IntInfAdd", vec![]),
+            Prim::IntInfAndb => named_object_printer("prim::IntInfAndb", vec![]),
+            Prim::IntInfArshift => named_object_printer("prim::IntInfArshift", vec![]),
+            Prim::IntInfCompare => named_object_printer("prim::IntInfCompare", vec![]),
+            Prim::IntInfGcd => named_object_printer("prim::IntInfGcd", vec![]),
+            Prim::IntInfLshift => named_object_printer("prim::IntInfLshift", vec![]),
+            Prim::IntInfMul => named_object_printer("prim::IntInfMul", vec![]),
+            Prim::IntInfNeg => named_object_printer("prim::IntInfNeg", vec![]),
+            Prim::IntInfNotb => named_object_printer("prim::IntInfNotb", vec![]),
+            Prim::IntInfOrb => named_object_printer("prim::IntInfOrb", vec![]),
+            Prim::IntInfQuot => named_object_printer("prim::IntInfQuot", vec![]),
+            Prim::IntInfRem => named_object_printer("prim::IntInfRem", vec![]),
+            Prim::IntInfSub => named_object_printer("prim::IntInfSub", vec![]),
+            Prim::IntInfToString => named_object_printer("prim::IntInfToString", vec![]),
+            Prim::IntInfToVector => named_object_printer("prim::IntInfToVector", vec![]),
+            Prim::IntInfToWord(sz) => named_object_printer("prim::IntInfToWord", vec![("size", sz.to_doc())]),
+            Prim::IntInfXorb => named_object_printer("prim::IntInfXorb", vec![]),
+
+            Prim::MLtonBogus => named_object_printer("prim::MLtonBogus", vec![]),
+            Prim::MLtonBug => named_object_printer("prim::MLtonBug", vec![]),
+            Prim::MLtonDeserialize => named_object_printer("prim::MLtonDeserialize", vec![]),
+            Prim::MLtonEq => named_object_printer("prim::MLtonEq", vec![]),
+            Prim::MLtonEqual => named_object_printer("prim::MLtonEqual", vec![]),
+            Prim::MLtonHalt => named_object_printer("prim::MLtonHalt", vec![]),
+            Prim::MLtonHash => named_object_printer("prim::MLtonHash", vec![]),
+            Prim::MLtonHandlesSignals => named_object_printer("prim::MLtonHandlesSignals", vec![]),
+            Prim::MLtonInstallSignalHandler => {
+                named_object_printer("prim::MLtonInstallSignalHandler", vec![])
+            }
+            Prim::MLtonSerialize => named_object_printer("prim::MLtonSerialize", vec![]),
+            Prim::MLtonShare => named_object_printer("prim::MLtonShare", vec![]),
+            Prim::MLtonSize => named_object_printer("prim::MLtonSize", vec![]),
+            Prim::MLtonTouch => named_object_printer("prim::MLtonTouch", vec![]),
+
+            Prim::RealMathAcos(sz) => named_object_printer("prim::RealMathAcos", vec![("size", sz.to_doc())]),
+            Prim::RealMathAsin(sz) => named_object_printer("prim::RealMathAsin", vec![("size", sz.to_doc())]),
+            Prim::RealMathAtan(sz) => named_object_printer("prim::RealMathAtan", vec![("size", sz.to_doc())]),
+            Prim::RealMathAtan2(sz) => named_object_printer("prim::RealMathAtan2", vec![("size", sz.to_doc())]),
+            Prim::RealMathCos(sz) => named_object_printer("prim::RealMathCos", vec![("size", sz.to_doc())]),
+            Prim::RealMathExp(sz) => named_object_printer("prim::RealMathExp", vec![("size", sz.to_doc())]),
+            Prim::RealMathLn(sz) => named_object_printer("prim::RealMathLn", vec![("size", sz.to_doc())]),
+            Prim::RealMathLog10(sz) => named_object_printer("prim::RealMathLog10", vec![("size", sz.to_doc())]),
+            Prim::RealMathSin(sz) => named_object_printer("prim::RealMathSin", vec![("size", sz.to_doc())]),
+            Prim::RealMathSqrt(sz) => named_object_printer("prim::RealMathSqrt", vec![("size", sz.to_doc())]),
+            Prim::RealMathTan(sz) => named_object_printer("prim::RealMathTan", vec![("size", sz.to_doc())]),
+            Prim::RealAbs(sz) => named_object_printer("prim::RealAbs", vec![("size", sz.to_doc())]),
+            Prim::RealAdd(sz) => named_object_printer("prim::RealAdd", vec![("size", sz.to_doc())]),
+
+            Prim::RealCastToWord(from, to) => named_object_printer(
+                "prim::RealCastToWord",
+                vec![("from", from.to_doc()), ("to", to.to_doc())],
+            ),
+
+            Prim::RealDiv(sz) => named_object_printer("prim::RealDiv", vec![("size", sz.to_doc())]),
+            Prim::RealEqual(sz) => named_object_printer("prim::RealEqual", vec![("size", sz.to_doc())]),
+            Prim::RealLdexp(sz) => named_object_printer("prim::RealLdexp", vec![("size", sz.to_doc())]),
+            Prim::RealLe(sz) => named_object_printer("prim::RealLe", vec![("size", sz.to_doc())]),
+            Prim::RealLt(sz) => named_object_printer("prim::RealLt", vec![("size", sz.to_doc())]),
+            Prim::RealMul(sz) => named_object_printer("prim::RealMul", vec![("size", sz.to_doc())]),
+            Prim::RealMuladd(sz) => named_object_printer("prim::RealMuladd", vec![("size", sz.to_doc())]),
+            Prim::RealMulsub(sz) => named_object_printer("prim::RealMulsub", vec![("size", sz.to_doc())]),
+            Prim::RealNeg(sz) => named_object_printer("prim::RealNeg", vec![("size", sz.to_doc())]),
+            Prim::RealQequal(sz) => named_object_printer("prim::RealQequal", vec![("size", sz.to_doc())]),
+
+            Prim::RealRndToReal(from, to) => named_object_printer(
+                "prim::RealRndToReal",
+                vec![("from", from.to_doc()), ("to", to.to_doc())],
+            ),
+
+            Prim::RealRndToWord(from, to, signed) => named_object_printer(
+                "prim::RealRndToWord",
+                vec![
+                    ("from", from.to_doc()),
+                    ("to", to.to_doc()),
+                    ("signed", RcDoc::text(signed.to_string())),
+                ],
+            ),
+
+            Prim::RealRound(sz) => named_object_printer("prim::RealRound", vec![("size", sz.to_doc())]),
+            Prim::RealSub(sz) => named_object_printer("prim::RealSub", vec![("size", sz.to_doc())]),
+
+            Prim::RefAssign => named_object_printer("prim::RefAssign", vec![]),
+            Prim::RefDeref => named_object_printer("prim::RefDeref", vec![]),
+            Prim::RefRef => named_object_printer("prim::RefRef", vec![]),
+            Prim::StringToWord8Vector => named_object_printer("prim::StringToWord8Vector", vec![]),
+
+            Prim::ThreadAtomicBegin => named_object_printer("prim::ThreadAtomicBegin", vec![]),
+            Prim::ThreadAtomicEnd => named_object_printer("prim::ThreadAtomicEnd", vec![]),
+            Prim::ThreadAtomicState => named_object_printer("prim::ThreadAtomicState", vec![]),
+            Prim::ThreadCopy => named_object_printer("prim::ThreadCopy", vec![]),
+            Prim::ThreadCopyCurrent => named_object_printer("prim::ThreadCopyCurrent", vec![]),
+            Prim::ThreadReturnToC => named_object_printer("prim::ThreadReturnToC", vec![]),
+            Prim::ThreadSwitchTo => named_object_printer("prim::ThreadSwitchTo", vec![]),
+
+            Prim::TopLevelGetHandler => named_object_printer("prim::TopLevelGetHandler", vec![]),
+            Prim::TopLevelGetSuffix => named_object_printer("prim::TopLevelGetSuffix", vec![]),
+            Prim::TopLevelSetHandler => named_object_printer("prim::TopLevelSetHandler", vec![]),
+            Prim::TopLevelSetSuffix => named_object_printer("prim::TopLevelSetSuffix", vec![]),
+
+            Prim::VectorLength => named_object_printer("prim::VectorLength", vec![]),
+            Prim::VectorSub => named_object_printer("prim::VectorSub", vec![]),
+            Prim::VectorVector => named_object_printer("prim::VectorVector", vec![]),
+
+            Prim::WeakCanGet => named_object_printer("prim::WeakCanGet", vec![]),
+            Prim::WeakGet => named_object_printer("prim::WeakGet", vec![]),
+            Prim::WeakNew => named_object_printer("prim::WeakNew", vec![]),
+
+            Prim::WordAdd(sz) => named_object_printer("prim::WordAdd", vec![("size", sz.to_doc())]),
+            Prim::WordAddCheckP(sz, signed) => named_object_printer(
+                "prim::WordAddCheckP",
+                vec![("size", sz.to_doc()), ("signed", RcDoc::text(signed.to_string()))],
+            ),
+            Prim::WordAndb(sz) => named_object_printer("prim::WordAndb", vec![("size", sz.to_doc())]),
+            Prim::WordCastToReal(from, to) => named_object_printer(
+                "prim::WordCastToReal",
+                vec![("from", from.to_doc()), ("to", to.to_doc())],
+            ),
+            Prim::WordEqual(sz) => named_object_printer("prim::WordEqual", vec![("size", sz.to_doc())]),
+            Prim::WordExtdToWord(from, to, signed) => named_object_printer(
+                "prim::WordExtdToWord",
+                vec![
+                    ("from", from.to_doc()),
+                    ("to", to.to_doc()),
+                    ("signed", RcDoc::text(signed.to_string())),
+                ],
+            ),
+            Prim::WordLshift(sz) => named_object_printer("prim::WordLshift", vec![("size", sz.to_doc())]),
+            Prim::WordLt(sz, signed) => named_object_printer(
+                "prim::WordLt",
+                vec![("size", sz.to_doc()), ("signed", RcDoc::text(signed.to_string()))],
+            ),
+            Prim::WordMul(sz, signed) => named_object_printer(
+                "prim::WordMul",
+                vec![("size", sz.to_doc()), ("signed", RcDoc::text(signed.to_string()))],
+            ),
+            Prim::WordMulCheckP(sz, signed) => named_object_printer(
+                "prim::WordMulCheckP",
+                vec![("size", sz.to_doc()), ("signed", RcDoc::text(signed.to_string()))],
+            ),
+            Prim::WordNeg(sz) => named_object_printer("prim::WordNeg", vec![("size", sz.to_doc())]),
+            Prim::WordNegCheckP(sz) => named_object_printer("prim::WordNegCheckP", vec![("size", sz.to_doc())]),
+            Prim::WordNotb(sz) => named_object_printer("prim::WordNotb", vec![("size", sz.to_doc())]),
+            Prim::WordOrb(sz) => named_object_printer("prim::WordOrb", vec![("size", sz.to_doc())]),
+
+            Prim::WordQuot(sz, signed) => named_object_printer(
+                "prim::WordQuot",
+                vec![("size", sz.to_doc()), ("signed", RcDoc::text(signed.to_string()))],
+            ),
+            Prim::WordRem(sz, signed) => named_object_printer(
+                "prim::WordRem",
+                vec![("size", sz.to_doc()), ("signed", RcDoc::text(signed.to_string()))],
+            ),
+            Prim::WordRndToReal(from, to, signed) => named_object_printer(
+                "prim::WordRndToReal",
+                vec![
+                    ("from", from.to_doc()),
+                    ("to", to.to_doc()),
+                    ("signed", RcDoc::text(signed.to_string())),
+                ],
+            ),
+            Prim::WordRol(sz) => named_object_printer("prim::WordRol", vec![("size", sz.to_doc())]),
+            Prim::WordRor(sz) => named_object_printer("prim::WordRor", vec![("size", sz.to_doc())]),
+            Prim::WordRshift(sz, signed) => named_object_printer(
+                "prim::WordRshift",
+                vec![("size", sz.to_doc()), ("signed", RcDoc::text(signed.to_string()))],
+            ),
+            Prim::WordSub(sz) => named_object_printer("prim::WordSub", vec![("size", sz.to_doc())]),
+            Prim::WordSubCheckP(sz, signed) => named_object_printer(
+                "prim::WordSubCheckP",
+                vec![("size", sz.to_doc()), ("signed", RcDoc::text(signed.to_string()))],
+            ),
+
+            Prim::WordToIntInf => named_object_printer("prim::WordToIntInf", vec![]),
+            Prim::WordXorb(sz) => named_object_printer("prim::WordXorb", vec![("size", sz.to_doc())]),
+            Prim::WordVectorToIntInf => named_object_printer("prim::WordVectorToIntInf", vec![]),
+
+            Prim::WordArraySubWord { seq_size, ele_size } => named_object_printer(
+                "prim::WordArraySubWord",
+                vec![
+                    ("seq_size", seq_size.to_doc()),
+                    ("ele_size", ele_size.to_doc()),
+                ],
+            ),
+
+            Prim::WordArrayUpdateWord { seq_size, ele_size } => named_object_printer(
+                "prim::WordArrayUpdateWord",
+                vec![
+                    // follow the existing printer comment which used seqSize/eleSize
+                    ("seqSize", seq_size.to_doc()),
+                    ("eleSize", ele_size.to_doc()),
+                ],
+            ),
+
+            Prim::WordVectorSubWord { seq_size, ele_size } => named_object_printer(
+                "prim::WordVectorSubWord",
+                vec![
+                    ("seqSize", seq_size.to_doc()),
+                    ("eleSize", ele_size.to_doc()),
+                ],
+            ),
+
+            Prim::Word8VectorToString => named_object_printer("prim::Word8VectorToString", vec![]),
+            Prim::WorldSave => named_object_printer("prim::WorldSave", vec![]),
+        }
     }
 }
 
@@ -785,26 +1002,6 @@ mod tests {
     }
 
     #[test]
-    fn test_print_prim_kind() {
-        assert_eq!(pretty_print(&PrimKind::DependsOnState), "DependsOnState");
-        assert_eq!(pretty_print(&PrimKind::Functional), "Functional");
-        assert_eq!(pretty_print(&PrimKind::Moveable), "Moveable");
-        assert_eq!(pretty_print(&PrimKind::SideEffect), "SideEffect");
-    }
-
-    #[test]
-    fn test_print_prim_kind_inverse() {
-        let k1: PrimKind = PrimKind::DependsOnState;
-        let k2: PrimKind = PrimKind::Functional;
-        let k3: PrimKind = PrimKind::Moveable;
-        let k4: PrimKind = PrimKind::SideEffect;
-        assert_eq!(k1.to_string().parse(), Ok(k1));
-        assert_eq!(k2.to_string().parse(), Ok(k2));
-        assert_eq!(k3.to_string().parse(), Ok(k3));
-        assert_eq!(k4.to_string().parse(), Ok(k4));
-    }
-
-    #[test]
     fn test_print_c_function_kind() {
         assert_eq!(pretty_print(&CFunctionKind::Pure), "Pure");
         assert_eq!(pretty_print(&CFunctionKind::Impure), "Impure");
@@ -873,66 +1070,8 @@ mod tests {
     }
 
     #[test]
-    fn test_print_prim_primitive() {
-        let expected = r#"
-CFunction {
-  args = ( (< Vector ( Word ( w8 ) ) >) ),
-  convention = cdecl,
-  inline = false,
-  kind = Impure,
-  prototype = prototype {
-    args = ( (< Objptr >) ),
-    res = None
-  },
-  return = (< Tuple (  ) >),
-  symbolScope = private,
-  target = target {
-    type = Direct,
-    name = "Stdio_print"
-  }
-}
-        "#;
-        let prim = PrimPrimitive::CFunction {
-            args: vec![SmlType::Vector(Box::new(SmlType::Word(WordSize::W8)))],
-            convention: CFunctionConvention::Cdecl,
-            inline: false,
-            kind: CFunctionKind::Impure,
-            prototype: (vec![CType::Objptr], None),
-            ret: SmlType::Tuple(vec![]),
-            symbol_scope: CFunctionSymbolScope::Private,
-            target: CFunctionTarget::Direct("Stdio_print".to_owned()),
-        };
-        assert_eq!(pretty_print(&prim), expected.trim());
-
-        let prim2 = PrimPrimitive::SmlPrim("IntInf_add".to_owned());
-        assert_eq!(pretty_print(&prim2), "\"IntInf_add\"");
-    }
-
-    #[test]
-    fn test_print_prim() {
-        let prim = Prim {
-            prim: PrimPrimitive::SmlPrim("IntInf_add".to_owned()),
-            kind: PrimKind::Functional,
-        };
-        let expected = r#"
-primitive {
-  prim = "IntInf_add",
-  kind = Functional
-}
-        "#;
-        assert_eq!(pretty_print(&prim), expected.trim());
-    }
-
-    #[test]
-    fn test_print_prim_inverse() {
-        let prim = Prim {
-            prim: PrimPrimitive::SmlPrim("IntInf_add".to_owned()),
-            kind: PrimKind::Functional,
-        };
-        assert_eq!(prim.to_string().parse(), Ok(prim));
-
-        let prim = Prim {
-            prim: PrimPrimitive::CFunction {
+    fn test_cfunction_inverse() {
+        let cfunc = CFunction {
                 args: vec![SmlType::Vector(Box::new(SmlType::Word(WordSize::W8)))],
                 convention: CFunctionConvention::Cdecl,
                 inline: false,
@@ -941,10 +1080,44 @@ primitive {
                 ret: SmlType::Tuple(vec![]),
                 symbol_scope: CFunctionSymbolScope::Private,
                 target: CFunctionTarget::Direct("Stdio_print".to_string()),
-            },
-            kind: PrimKind::Functional,
+            };
+        println!("{}", cfunc.to_string());
+        assert_eq!(cfunc.to_string().parse(), Ok(cfunc));
+    }
+
+    #[test]
+    fn test_prim_inverse() {
+        let p1 = Prim::WordEqual(WordSize::W32);
+        assert_eq!(p1.to_string().parse(), Ok(p1));
+
+        let p2 = Prim::RealRndToWord(RealSize::R64, WordSize::W64, true);
+        assert_eq!(p2.to_string().parse(), Ok(p2));
+
+        let p3 = Prim::CFunction(CFunction {
+            args: vec![SmlType::IntInf, SmlType::Word(WordSize::W8)],
+            convention: CFunctionConvention::Cdecl,
+            inline: true,
+            kind: CFunctionKind::Impure,
+            prototype: (vec![
+                CType::CPointer,
+                CType::Word64,
+            ], Some(CType::Word64)),
+            ret: SmlType::Real(RealSize::R32),
+            symbol_scope: CFunctionSymbolScope::Public,
+            target: CFunctionTarget::Direct("my_c_func".to_string()),
+        });
+        assert_eq!(p3.to_string().parse(), Ok(p3));
+
+        let p4 = Prim::WordArrayUpdateWord {
+            seq_size: WordSize::W32,
+            ele_size: WordSize::W16,
         };
-        assert_eq!(prim.to_string().parse(), Ok(prim));
+        assert_eq!(p4.to_string().parse(), Ok(p4));
+
+        let p5 = Prim::WordExtdToWord(WordSize::W8, WordSize::W32, false);
+        assert_eq!(p5.to_string().parse(), Ok(p5));
+
+        // Non-exhaustive
     }
 
     #[test]
@@ -1082,8 +1255,8 @@ primitive {
                     var: None,
                     ty: SmlType::Tuple(vec![]),
                     exp: Exp::PrimApp {
-                        prim: Prim {
-                            prim: PrimPrimitive::CFunction {
+                        prim: Prim::CFunction (
+                            CFunction {
                                 args: vec![SmlType::Vector(Box::new(SmlType::Word(WordSize::W8)))],
                                 convention: CFunctionConvention::Cdecl,
                                 inline: false,
@@ -1093,8 +1266,7 @@ primitive {
                                 symbol_scope: CFunctionSymbolScope::Private,
                                 target: CFunctionTarget::Direct("Stdio_print".to_string()),
                             },
-                            kind: PrimKind::DependsOnState,
-                        },
+                        ),
                         targs: None,
                         args: vec!["global_37".to_string()],
                     },
@@ -1196,8 +1368,7 @@ primitive {
                                        args = (),
                                        statements = (statement {var = Some x_76,
                                                                 type = (< Datatype( "bool" ) >),
-                                                                exp = exp::PrimApp {prim = primitive {prim = "Ref_deref",
-                                                                                                      kind = DependsOnState},
+                                                                exp = exp::PrimApp {prim = prim::RefDeref {},
                                                                                     args = (x_0),
                                                                                     targs = ((< Datatype( "bool" ) >))}}),
                                        transfer = transfer::case::Con {test = x_76,

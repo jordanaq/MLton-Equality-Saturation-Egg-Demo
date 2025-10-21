@@ -1,14 +1,9 @@
 use std::{
-    cmp::Ordering,
     collections::{HashMap, HashSet},
-    fmt::Display,
     hash::Hash,
-    str::FromStr,
 };
 
 use ordered_float::OrderedFloat;
-
-use crate::parse::{parse_exp_const, parse_sml_type_raw, parse_ssa};
 
 pub type ConstructorId = String;
 pub type FunctionId = String;
@@ -83,14 +78,6 @@ pub enum Const {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum PrimKind {
-    DependsOnState,
-    Functional,
-    Moveable,
-    SideEffect,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum CFunctionKind {
     Pure,
     Impure,
@@ -116,35 +103,172 @@ pub enum CFunctionSymbolScope {
     Public,
 }
 
-// TODO: Probably need a better prim representation, an enum over all prims
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum PrimPrimitive {
-    CFunction {
-        args: Vec<SmlType>,
-        convention: CFunctionConvention,
-        inline: bool,
-        kind: CFunctionKind,
-        prototype: (Vec<CType>, Option<CType>),
-        ret: SmlType,
-        symbol_scope: CFunctionSymbolScope,
-        target: CFunctionTarget,
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CFunction {
+    pub args: Vec<SmlType>,
+    pub convention: CFunctionConvention,
+    pub inline: bool,
+    pub kind: CFunctionKind,
+    pub prototype: (Vec<CType>, Option<CType>),
+    pub ret: SmlType,
+    pub symbol_scope: CFunctionSymbolScope,
+    pub target: CFunctionTarget,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Prim {
+    ArrayAlloc {
+        raw: bool,
     },
-    SmlPrim(String),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Prim {
-    pub prim: PrimPrimitive,
-    pub kind: PrimKind,
-}
-
-impl Prim {
-    pub fn make_pure_sml(prim: &str) -> Prim {
-        Prim {
-            prim: PrimPrimitive::SmlPrim(prim.into()),
-            kind: PrimKind::Functional,
-        }
-    }
+    ArrayArray,
+    ArrayCopyArray,
+    ArrayCopyVector,
+    ArrayLength,
+    ArraySub,
+    ArrayToArray,
+    ArrayToVector,
+    ArrayUninit,
+    ArrayUninitIsNop,
+    ArrayUpdate,
+    CFunction(CFunction),
+    CPointerAdd,
+    CPointerDiff,
+    CPointerEqual,
+    CPointerFromWord,
+    CPointerGetCPointer,
+    CPointerGetObjptr,
+    CPointerGetReal(RealSize),
+    CPointerGetWord(WordSize),
+    CPointerLt,
+    CPointerSetCPointer,
+    CPointerSetObjptr,
+    CPointerSetReal(RealSize),
+    CPointerSetWord(WordSize),
+    CPointerSub,
+    CPointerToWord,
+    ExnExtra,
+    ExnName,
+    ExnSetExtendExtra,
+    GCCollect,
+    GCState,
+    IntInfAdd,
+    IntInfAndb,
+    IntInfArshift,
+    IntInfCompare,
+    IntInfGcd,
+    IntInfLshift,
+    IntInfMul,
+    IntInfNeg,
+    IntInfNotb,
+    IntInfOrb,
+    IntInfQuot,
+    IntInfRem,
+    IntInfSub,
+    IntInfToString,
+    IntInfToVector,
+    IntInfToWord(WordSize),
+    IntInfXorb,
+    MLtonBogus, // Makes a bogus value of any type.
+    MLtonBug,
+    MLtonDeserialize,
+    MLtonEq,
+    MLtonEqual,
+    MLtonHalt,
+    MLtonHash,
+    MLtonHandlesSignals,
+    MLtonInstallSignalHandler,
+    MLtonSerialize,
+    MLtonShare,
+    MLtonSize,
+    MLtonTouch,
+    RealMathAcos(RealSize),
+    RealMathAsin(RealSize),
+    RealMathAtan(RealSize),
+    RealMathAtan2(RealSize),
+    RealMathCos(RealSize),
+    RealMathExp(RealSize),
+    RealMathLn(RealSize),
+    RealMathLog10(RealSize),
+    RealMathSin(RealSize),
+    RealMathSqrt(RealSize),
+    RealMathTan(RealSize),
+    RealAbs(RealSize),
+    RealAdd(RealSize),
+    RealCastToWord(RealSize, WordSize),
+    RealDiv(RealSize),
+    RealEqual(RealSize),
+    RealLdexp(RealSize),
+    RealLe(RealSize),
+    RealLt(RealSize),
+    RealMul(RealSize),
+    RealMuladd(RealSize),
+    RealMulsub(RealSize),
+    RealNeg(RealSize),
+    RealQequal(RealSize),
+    RealRndToReal(RealSize, RealSize),
+    RealRndToWord(RealSize, WordSize, bool), // signed
+    RealRound(RealSize),
+    RealSub(RealSize),
+    RefAssign,
+    RefDeref,
+    RefRef,
+    StringToWord8Vector,
+    ThreadAtomicBegin,
+    ThreadAtomicEnd,
+    ThreadAtomicState,
+    ThreadCopy,
+    ThreadCopyCurrent,
+    ThreadReturnToC,
+    ThreadSwitchTo,
+    TopLevelGetHandler,
+    TopLevelGetSuffix,
+    TopLevelSetHandler,
+    TopLevelSetSuffix,
+    VectorLength,
+    VectorSub,
+    VectorVector,
+    WeakCanGet,
+    WeakGet,
+    WeakNew,
+    WordAdd(WordSize),
+    WordAddCheckP(WordSize, bool), // signed
+    WordAndb(WordSize),
+    WordCastToReal(WordSize, RealSize),
+    WordEqual(WordSize),
+    WordExtdToWord(WordSize, WordSize, bool), // signed
+    WordLshift(WordSize),
+    WordLt(WordSize, bool),        // signed
+    WordMul(WordSize, bool),       // signed
+    WordMulCheckP(WordSize, bool), // signed
+    WordNeg(WordSize),
+    WordNegCheckP(WordSize),
+    WordNotb(WordSize),
+    WordOrb(WordSize),
+    WordQuot(WordSize, bool),                // signed
+    WordRem(WordSize, bool),                 // signed
+    WordRndToReal(WordSize, RealSize, bool), // signed
+    WordRol(WordSize),
+    WordRor(WordSize),
+    WordRshift(WordSize, bool), // signed
+    WordSub(WordSize),
+    WordSubCheckP(WordSize, bool), // signed
+    WordToIntInf,
+    WordXorb(WordSize),
+    WordVectorToIntInf,
+    WordArraySubWord {
+        seq_size: WordSize,
+        ele_size: WordSize,
+    },
+    WordArrayUpdateWord {
+        seq_size: WordSize,
+        ele_size: WordSize,
+    },
+    WordVectorSubWord {
+        seq_size: WordSize,
+        ele_size: WordSize,
+    },
+    Word8VectorToString,
+    WorldSave,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -469,7 +593,7 @@ mod tests {
                         var: Some("x_pairity".into()),
                         ty: SmlType::Word(WordSize::W32),
                         exp: Exp::PrimApp {
-                            prim: Prim::make_pure_sml("and_w32"),
+                            prim: Prim::WordAdd(WordSize::W32),
                             targs: None,
                             args: vec!["x".into(), "literal_1".into()],
                         },

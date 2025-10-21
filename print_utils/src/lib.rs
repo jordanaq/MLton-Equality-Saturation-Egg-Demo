@@ -1,5 +1,3 @@
-use std::{rc::Rc, str::FromStr};
-
 use pretty::RcDoc;
 
 pub trait PrettyDoc {

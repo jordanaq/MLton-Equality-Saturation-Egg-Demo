@@ -84,17 +84,17 @@ impl PrettyDoc for FPegL {
 
 impl PrettyDoc for FPeg {
     fn to_doc(&self) -> RcDoc<'_> {
-        let items = vec![(
-            "egraph",
-            paren_list_printer(self.egraph.nodes())
-        )];
+        let items = vec![("egraph", paren_list_printer(self.egraph.nodes()))];
         named_object_printer("FPeg", items)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use mlton_ssa::{print, ssa::{Const, SmlType, WordSize}};
+    use mlton_ssa::{
+        print,
+        ssa::{Const, SmlType, WordSize},
+    };
 
     use super::*;
 

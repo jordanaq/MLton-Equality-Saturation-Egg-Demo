@@ -1,20 +1,15 @@
 use std::{
     collections::HashMap,
-    fmt::{self, Display},
-    str::FromStr,
 };
 
-use egg::{EGraph, Id, RecExpr, define_language};
+use egg::{EGraph, Id, define_language};
 
 use mlton_ssa::{
-    print,
     ssa::{
         Const, ConstructorId as MltConstructorId, Datatype as MltDatatype, Exp as MltExp,
         Prim as MltPrim, SmlType, VarId as MltVarId,
     },
 };
-
-use crate::parse::*;
 
 pub type Region = Id;
 
@@ -225,7 +220,7 @@ mod tests {
         assert!(r1.is_some());
 
         let e2 = MltExp::PrimApp {
-            prim: MltPrim::make_pure_sml("add_w64"),
+            prim: MltPrim::WordAdd(WordSize::W64),
             targs: None,
             args: vec!["x".into(), "y".into()],
         };

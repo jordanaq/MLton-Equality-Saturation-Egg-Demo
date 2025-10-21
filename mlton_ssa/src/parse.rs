@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashSet},
     str::FromStr,
 };
 
@@ -264,11 +264,15 @@ fn parse_exp_conapp(s: &str) -> IResult<&str, Exp> {
 }
 
 fn parse_const_csymbol(s: &str) -> IResult<&str, Const> {
-    todo!()
+    named_object_parser("const::CSymbol", take_until("}"))
+        .map(|_| unimplemented!())
+        .parse(s)
 }
 
-fn parse_const_intinf(s: &str) -> IResult<&str, Const> {
-    todo!()
+fn parse_const_intinf(_s: &str) -> IResult<&str, Const> {
+    named_object_parser("const::IntInf", take_until("}"))
+        .map(|_| unimplemented!())
+        .parse(_s)
 }
 
 fn parse_const_null(s: &str) -> IResult<&str, Const> {
@@ -329,8 +333,8 @@ fn parse_const_wordvector(s: &str) -> IResult<&str, Const> {
 
 pub fn parse_const(s: &str) -> IResult<&str, Const> {
     alt((
-        // parse_const_csymbol,
-        // parse_const_intinf,
+        parse_const_csymbol,
+        parse_const_intinf,
         parse_const_null,
         parse_const_real,
         parse_const_word,
@@ -361,7 +365,9 @@ pub fn parse_exp_const(s: &str) -> IResult<&str, Exp> {
 }
 
 fn parse_exp_profile(s: &str) -> IResult<&str, Exp> {
-    todo!()
+    named_object_parser("exp::Profile", take_until("}"))
+        .map(|_| unimplemented!())
+        .parse(s)
 }
 
 fn parse_exp_select(s: &str) -> IResult<&str, Exp> {
@@ -547,26 +553,22 @@ impl FromStr for CFunctionTarget {
     }
 }
 
-fn parse_cfunction(s: &str) -> IResult<&str, PrimPrimitive> {
-    let (rest, (args, convention, inline, kind, prototype, ret, symbol_scope, target)) =
-        named_object_parser(
-            "CFunction",
-            (
-                parse_key_field("args", parse_sml_types),
-                parse_key_field("convention", parse_cfunction_convention),
-                parse_key_field("inline", parse_true_false),
-                parse_key_field("kind", parse_cfunction_kind),
-                parse_key_field("prototype", parse_cfunction_prototype),
-                parse_key_field("return", parse_sml_type),
-                parse_key_field("symbolScope", parse_cfunction_symbol_scope),
-                parse_key_field("target", parse_cfunction_target),
-            ),
-        )
-        .parse(s)?;
-
-    Ok((
-        rest,
-        PrimPrimitive::CFunction {
+fn parse_cfunction(s: &str) -> IResult<&str, CFunction> {
+    named_object_parser(
+        "CFunction",
+        (
+            parse_key_field("args", parse_sml_types),
+            parse_key_field("convention", parse_cfunction_convention),
+            parse_key_field("inline", parse_true_false),
+            parse_key_field("kind", parse_cfunction_kind),
+            parse_key_field("prototype", parse_cfunction_prototype),
+            parse_key_field("return", parse_sml_type),
+            parse_key_field("symbolScope", parse_cfunction_symbol_scope),
+            parse_key_field("target", parse_cfunction_target),
+        ),
+    )
+    .map(
+        |(args, convention, inline, kind, prototype, ret, symbol_scope, target)| CFunction {
             args,
             convention,
             inline,
@@ -576,55 +578,551 @@ fn parse_cfunction(s: &str) -> IResult<&str, PrimPrimitive> {
             symbol_scope,
             target,
         },
-    ))
+    )
+    .parse(s)
 }
 
-fn parse_prim_kind(s: &str) -> IResult<&str, PrimKind> {
-    let (rest, kind) = alt((
-        tag("DependsOnState"),
-        tag("Functional"),
-        tag("Moveable"),
-        tag("SideEffect"),
-    ))
-    .parse(s)?;
-
-    match kind {
-        "DependsOnState" => Ok((rest, PrimKind::DependsOnState)),
-        "Functional" => Ok((rest, PrimKind::Functional)),
-        "Moveable" => Ok((rest, PrimKind::Moveable)),
-        "SideEffect" => Ok((rest, PrimKind::SideEffect)),
-        _ => unreachable!(),
-    }
-}
-
-impl FromStr for PrimKind {
+impl FromStr for CFunction {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match parse_prim_kind(s) {
-            Ok(("", k)) => Ok(k),
+        match parse_cfunction(s) {
+            Ok(("", f)) => Ok(f),
             _ => Err(()),
         }
     }
 }
 
-pub fn parse_prim(s: &str) -> IResult<&str, Prim> {
-    let (rest, (p, k)) = named_object_parser(
-        "primitive",
-        (
-            parse_key_field(
-                "prim",
-                alt((
-                    parse_cfunction,
-                    map(parse_string, |id| PrimPrimitive::SmlPrim(id.trim().into())),
-                )),
-            ),
-            parse_key_field("kind", parse_prim_kind),
-        ),
-    )
-    .parse(s)?;
+macro_rules! obj_alt_builder {
+    ($s:ident, $(($tag_str:expr, $inner:expr, $constructor:expr)),*, $(,)?) => {{
+        let (_rest, tag) = take_until("{").parse($s)?;
+        match tag.trim() {
+            $(
+                $tag_str => {
+                    let (rest, prim) = named_object_parser(
+                        $tag_str,
+                        $inner,
+                    ).parse($s)?;
+                    Ok((rest, $constructor(prim)))
+                },
+            )*
+            _ => {
+                eprintln!("No matching tag found for: {}", tag.trim());
+                Err(nom::Err::Error(Error::new($s, nom::error::ErrorKind::Tag)))
+            }
+        }
+    }};
+}
 
-    Ok((rest, Prim { prim: p, kind: k }))
+pub fn parse_prim(s: &str) -> IResult<&str, Prim> {
+    obj_alt_builder!(
+        s,
+        (
+            "prim::ArrayAlloc",
+            parse_key_field("raw", parse_true_false),
+            |raw| Prim::ArrayAlloc { raw }
+        ),
+        ("prim::ArrayArray", multispace0(), |_| Prim::ArrayArray),
+        ("prim::ArrayCopyArray", multispace0(), |_| {
+            Prim::ArrayCopyArray
+        }),
+        ("prim::ArrayCopyVector", multispace0(), |_| {
+            Prim::ArrayCopyVector
+        }),
+        ("prim::ArrayLength", multispace0(), |_| Prim::ArrayLength),
+        ("prim::ArraySub", multispace0(), |_| Prim::ArraySub),
+        ("prim::ArrayToArray", multispace0(), |_| Prim::ArrayToArray),
+        ("prim::ArrayToVector", multispace0(), |_| {
+            Prim::ArrayToVector
+        }),
+        ("prim::ArrayUninit", multispace0(), |_| Prim::ArrayUninit),
+        ("prim::ArrayUninitIsNop", multispace0(), |_| {
+            Prim::ArrayUninitIsNop
+        }),
+        ("prim::ArrayUpdate", multispace0(), |_| Prim::ArrayUpdate),
+        (
+            "prim::CFunction",
+            parse_key_field("func", parse_cfunction),
+            Prim::CFunction
+        ),
+        ("prim::CPointerAdd", multispace0(), |_| Prim::CPointerAdd),
+        ("prim::CPointerDiff", multispace0(), |_| Prim::CPointerDiff),
+        ("prim::CPointerEqual", multispace0(), |_| {
+            Prim::CPointerEqual
+        }),
+        ("prim::CPointerFromWord", multispace0(), |_| {
+            Prim::CPointerFromWord
+        }),
+        ("prim::CPointerGetCPointer", multispace0(), |_| {
+            Prim::CPointerGetCPointer
+        }),
+        ("prim::CPointerGetObjptr", multispace0(), |_| {
+            Prim::CPointerGetObjptr
+        }),
+        (
+            "prim::CPointerGetReal",
+            parse_key_field("size", parse_realsize),
+            Prim::CPointerGetReal
+        ),
+        (
+            "prim::CPointerGetWord",
+            parse_key_field("size", parse_wordsize),
+            Prim::CPointerGetWord
+        ),
+        ("prim::CPointerLt", multispace0(), |_| Prim::CPointerLt),
+        ("prim::CPointerSetCPointer", multispace0(), |_| {
+            Prim::CPointerSetCPointer
+        }),
+        ("prim::CPointerSetObjptr", multispace0(), |_| {
+            Prim::CPointerSetObjptr
+        }),
+        (
+            "prim::CPointerSetReal",
+            parse_key_field("size", parse_realsize),
+            Prim::CPointerSetReal
+        ),
+        (
+            "prim::CPointerSetWord",
+            parse_key_field("size", parse_wordsize),
+            Prim::CPointerSetWord
+        ),
+        ("prim::CPointerSub", multispace0(), |_| Prim::CPointerSub),
+        ("prim::CPointerToWord", multispace0(), |_| {
+            Prim::CPointerToWord
+        }),
+        ("prim::ExnExtra", multispace0(), |_| Prim::ExnExtra),
+        ("prim::ExnName", multispace0(), |_| Prim::ExnName),
+        ("prim::ExnSetExtendExtra", multispace0(), |_| {
+            Prim::ExnSetExtendExtra
+        }),
+        ("prim::GCCollect", multispace0(), |_| Prim::GCCollect),
+        ("prim::GCState", multispace0(), |_| Prim::GCState),
+        ("prim::IntInfAdd", multispace0(), |_| Prim::IntInfAdd),
+        ("prim::IntInfAndb", multispace0(), |_| Prim::IntInfAndb),
+        ("prim::IntInfArshift", multispace0(), |_| {
+            Prim::IntInfArshift
+        }),
+        ("prim::IntInfCompare", multispace0(), |_| {
+            Prim::IntInfCompare
+        }),
+        ("prim::IntInfGcd", multispace0(), |_| Prim::IntInfGcd),
+        ("prim::IntInfLshift", multispace0(), |_| Prim::IntInfLshift),
+        ("prim::IntInfMul", multispace0(), |_| Prim::IntInfMul),
+        ("prim::IntInfNeg", multispace0(), |_| Prim::IntInfNeg),
+        ("prim::IntInfNotb", multispace0(), |_| Prim::IntInfNotb),
+        ("prim::IntInfOrb", multispace0(), |_| Prim::IntInfOrb),
+        ("prim::IntInfQuot", multispace0(), |_| Prim::IntInfQuot),
+        ("prim::IntInfRem", multispace0(), |_| Prim::IntInfRem),
+        ("prim::IntInfSub", multispace0(), |_| Prim::IntInfSub),
+        ("prim::IntInfToString", multispace0(), |_| {
+            Prim::IntInfToString
+        }),
+        ("prim::IntInfToVector", multispace0(), |_| {
+            Prim::IntInfToVector
+        }),
+        (
+            "prim::IntInfToWord",
+            parse_key_field("size", parse_wordsize),
+            Prim::IntInfToWord
+        ),
+        ("prim::IntInfXorb", multispace0(), |_| Prim::IntInfXorb),
+        ("prim::MLtonBogus", multispace0(), |_| Prim::MLtonBogus),
+        ("prim::MLtonBug", multispace0(), |_| Prim::MLtonBug),
+        ("prim::MLtonDeserialize", multispace0(), |_| {
+            Prim::MLtonDeserialize
+        }),
+        ("prim::MLtonEq", multispace0(), |_| Prim::MLtonEq),
+        ("prim::MLtonEqual", multispace0(), |_| Prim::MLtonEqual),
+        ("prim::MLtonHalt", multispace0(), |_| Prim::MLtonHalt),
+        ("prim::MLtonHash", multispace0(), |_| Prim::MLtonHash),
+        ("prim::MLtonHandlesSignals", multispace0(), |_| {
+            Prim::MLtonHandlesSignals
+        }),
+        ("prim::MLtonInstallSignalHandler", multispace0(), |_| {
+            Prim::MLtonInstallSignalHandler
+        }),
+        ("prim::MLtonSerialize", multispace0(), |_| {
+            Prim::MLtonSerialize
+        }),
+        ("prim::MLtonShare", multispace0(), |_| Prim::MLtonShare),
+        ("prim::MLtonSize", multispace0(), |_| Prim::MLtonSize),
+        ("prim::MLtonTouch", multispace0(), |_| Prim::MLtonTouch),
+        (
+            "prim::RealMathAcos",
+            parse_key_field("size", parse_realsize),
+            Prim::RealMathAcos
+        ),
+        (
+            "prim::RealMathAsin",
+            parse_key_field("size", parse_realsize),
+            Prim::RealMathAsin
+        ),
+        (
+            "prim::RealMathAtan",
+            parse_key_field("size", parse_realsize),
+            Prim::RealMathAtan
+        ),
+        (
+            "prim::RealMathAtan2",
+            parse_key_field("size", parse_realsize),
+            Prim::RealMathAtan2
+        ),
+        (
+            "prim::RealMathCos",
+            parse_key_field("size", parse_realsize),
+            Prim::RealMathCos
+        ),
+        (
+            "prim::RealMathExp",
+            parse_key_field("size", parse_realsize),
+            Prim::RealMathExp
+        ),
+        (
+            "prim::RealMathLn",
+            parse_key_field("size", parse_realsize),
+            Prim::RealMathLn
+        ),
+        (
+            "prim::RealMathLog10",
+            parse_key_field("size", parse_realsize),
+            Prim::RealMathLog10
+        ),
+        (
+            "prim::RealMathSin",
+            parse_key_field("size", parse_realsize),
+            Prim::RealMathSin
+        ),
+        (
+            "prim::RealMathSqrt",
+            parse_key_field("size", parse_realsize),
+            Prim::RealMathSqrt
+        ),
+        (
+            "prim::RealMathTan",
+            parse_key_field("size", parse_realsize),
+            Prim::RealMathTan
+        ),
+        (
+            "prim::RealAbs",
+            parse_key_field("size", parse_realsize),
+            Prim::RealAbs
+        ),
+        (
+            "prim::RealAdd",
+            parse_key_field("size", parse_realsize),
+            Prim::RealAdd
+        ),
+        (
+            "prim::RealCastToWord",
+            (
+                parse_key_field("from", parse_realsize),
+                parse_key_field("to", parse_wordsize)
+            ),
+            |(from, to)| Prim::RealCastToWord(from, to)
+        ),
+        (
+            "prim::RealDiv",
+            parse_key_field("size", parse_realsize),
+            Prim::RealDiv
+        ),
+        (
+            "prim::RealEqual",
+            parse_key_field("size", parse_realsize),
+            Prim::RealEqual
+        ),
+        (
+            "prim::RealLdexp",
+            parse_key_field("size", parse_realsize),
+            Prim::RealLdexp
+        ),
+        (
+            "prim::RealLe",
+            parse_key_field("size", parse_realsize),
+            Prim::RealLe
+        ),
+        (
+            "prim::RealLt",
+            parse_key_field("size", parse_realsize),
+            Prim::RealLt
+        ),
+        (
+            "prim::RealMul",
+            parse_key_field("size", parse_realsize),
+            Prim::RealMul
+        ),
+        (
+            "prim::RealMuladd",
+            parse_key_field("size", parse_realsize),
+            Prim::RealMuladd
+        ),
+        (
+            "prim::RealMulsub",
+            parse_key_field("size", parse_realsize),
+            Prim::RealMulsub
+        ),
+        (
+            "prim::RealNeg",
+            parse_key_field("size", parse_realsize),
+            Prim::RealNeg
+        ),
+        (
+            "prim::RealQequal",
+            parse_key_field("size", parse_realsize),
+            Prim::RealQequal
+        ),
+        (
+            "prim::RealRndToReal",
+            (
+                parse_key_field("from", parse_realsize),
+                parse_key_field("to", parse_realsize)
+            ),
+            |(from, to)| Prim::RealRndToReal(from, to)
+        ),
+        (
+            "prim::RealRndToWord",
+            (
+                parse_key_field("from", parse_realsize),
+                parse_key_field("to", parse_wordsize),
+                parse_key_field("signed", parse_true_false)
+            ),
+            |(from, to, signed)| Prim::RealRndToWord(from, to, signed)
+        ),
+        (
+            "prim::RealRound",
+            parse_key_field("size", parse_realsize),
+            Prim::RealRound
+        ),
+        (
+            "prim::RealSub",
+            parse_key_field("size", parse_realsize),
+            Prim::RealSub
+        ),
+        ("prim::RefAssign", multispace0(), |_| Prim::RefAssign),
+        ("prim::RefDeref", multispace0(), |_| Prim::RefDeref),
+        ("prim::RefRef", multispace0(), |_| Prim::RefRef),
+        ("prim::StringToWord8Vector", multispace0(), |_| {
+            Prim::StringToWord8Vector
+        }),
+        ("prim::ThreadAtomicBegin", multispace0(), |_| {
+            Prim::ThreadAtomicBegin
+        }),
+        ("prim::ThreadAtomicEnd", multispace0(), |_| {
+            Prim::ThreadAtomicEnd
+        }),
+        ("prim::ThreadAtomicState", multispace0(), |_| {
+            Prim::ThreadAtomicState
+        }),
+        ("prim::ThreadCopy", multispace0(), |_| Prim::ThreadCopy),
+        ("prim::ThreadCopyCurrent", multispace0(), |_| {
+            Prim::ThreadCopyCurrent
+        }),
+        ("prim::ThreadReturnToC", multispace0(), |_| {
+            Prim::ThreadReturnToC
+        }),
+        ("prim::ThreadSwitchTo", multispace0(), |_| {
+            Prim::ThreadSwitchTo
+        }),
+        ("prim::TopLevelGetHandler", multispace0(), |_| {
+            Prim::TopLevelGetHandler
+        }),
+        ("prim::TopLevelGetSuffix", multispace0(), |_| {
+            Prim::TopLevelGetSuffix
+        }),
+        ("prim::TopLevelSetHandler", multispace0(), |_| {
+            Prim::TopLevelSetHandler
+        }),
+        ("prim::TopLevelSetSuffix", multispace0(), |_| {
+            Prim::TopLevelSetSuffix
+        }),
+        ("prim::VectorLength", multispace0(), |_| Prim::VectorLength),
+        ("prim::VectorSub", multispace0(), |_| Prim::VectorSub),
+        ("prim::VectorVector", multispace0(), |_| Prim::VectorVector),
+        ("prim::WeakCanGet", multispace0(), |_| Prim::WeakCanGet),
+        ("prim::WeakGet", multispace0(), |_| Prim::WeakGet),
+        ("prim::WeakNew", multispace0(), |_| Prim::WeakNew),
+        (
+            "prim::WordAdd",
+            parse_key_field("size", parse_wordsize),
+            Prim::WordAdd
+        ),
+        (
+            "prim::WordAddCheckP",
+            (
+                parse_key_field("size", parse_wordsize),
+                parse_key_field("signed", parse_true_false)
+            ),
+            |(sz, signed)| Prim::WordAddCheckP(sz, signed)
+        ),
+        (
+            "prim::WordAndb",
+            parse_key_field("size", parse_wordsize),
+            Prim::WordAndb
+        ),
+        (
+            "prim::WordCastToReal",
+            (
+                parse_key_field("from", parse_wordsize),
+                parse_key_field("to", parse_realsize)
+            ),
+            |(from, to)| Prim::WordCastToReal(from, to)
+        ),
+        (
+            "prim::WordEqual",
+            parse_key_field("size", parse_wordsize),
+            Prim::WordEqual
+        ),
+        (
+            "prim::WordExtdToWord",
+            (
+                parse_key_field("from", parse_wordsize),
+                parse_key_field("to", parse_wordsize),
+                parse_key_field("signed", parse_true_false)
+            ),
+            |(from, to, signed)| Prim::WordExtdToWord(from, to, signed)
+        ),
+        (
+            "prim::WordLshift",
+            parse_key_field("size", parse_wordsize),
+            Prim::WordLshift
+        ),
+        (
+            "prim::WordLt",
+            (
+                parse_key_field("size", parse_wordsize),
+                parse_key_field("signed", parse_true_false)
+            ),
+            |(sz, signed)| Prim::WordLt(sz, signed)
+        ),
+        (
+            "prim::WordMul",
+            (
+                parse_key_field("size", parse_wordsize),
+                parse_key_field("signed", parse_true_false)
+            ),
+            |(sz, signed)| Prim::WordMul(sz, signed)
+        ),
+        (
+            "prim::WordMulCheckP",
+            (
+                parse_key_field("size", parse_wordsize),
+                parse_key_field("signed", parse_true_false)
+            ),
+            |(sz, signed)| Prim::WordMulCheckP(sz, signed)
+        ),
+        (
+            "prim::WordNeg",
+            parse_key_field("size", parse_wordsize),
+            Prim::WordNeg
+        ),
+        (
+            "prim::WordNegCheckP",
+            parse_key_field("size", parse_wordsize),
+            Prim::WordNegCheckP
+        ),
+        (
+            "prim::WordNotb",
+            parse_key_field("size", parse_wordsize),
+            Prim::WordNotb
+        ),
+        (
+            "prim::WordOrb",
+            parse_key_field("size", parse_wordsize),
+            Prim::WordOrb
+        ),
+        (
+            "prim::WordQuot",
+            (
+                parse_key_field("size", parse_wordsize),
+                parse_key_field("signed", parse_true_false)
+            ),
+            |(sz, signed)| Prim::WordQuot(sz, signed)
+        ),
+        (
+            "prim::WordRem",
+            (
+                parse_key_field("size", parse_wordsize),
+                parse_key_field("signed", parse_true_false)
+            ),
+            |(sz, signed)| Prim::WordRem(sz, signed)
+        ),
+        (
+            "prim::WordRndToReal",
+            (
+                parse_key_field("from", parse_wordsize),
+                parse_key_field("to", parse_realsize),
+                parse_key_field("signed", parse_true_false)
+            ),
+            |(from, to, signed)| Prim::WordRndToReal(from, to, signed)
+        ),
+        (
+            "prim::WordRol",
+            parse_key_field("size", parse_wordsize),
+            Prim::WordRol
+        ),
+        (
+            "prim::WordRor",
+            parse_key_field("size", parse_wordsize),
+            Prim::WordRor
+        ),
+        (
+            "prim::WordRshift",
+            (
+                parse_key_field("size", parse_wordsize),
+                parse_key_field("signed", parse_true_false)
+            ),
+            |(sz, signed)| Prim::WordRshift(sz, signed)
+        ),
+        (
+            "prim::WordSub",
+            parse_key_field("size", parse_wordsize),
+            Prim::WordSub
+        ),
+        (
+            "prim::WordSubCheckP",
+            (
+                parse_key_field("size", parse_wordsize),
+                parse_key_field("signed", parse_true_false)
+            ),
+            |(sz, signed)| Prim::WordSubCheckP(sz, signed)
+        ),
+        ("prim::WordToIntInf", multispace0(), |_| Prim::WordToIntInf),
+        (
+            "prim::WordXorb",
+            parse_key_field("size", parse_wordsize),
+            Prim::WordXorb
+        ),
+        ("prim::WordVectorToIntInf", multispace0(), |_| {
+            Prim::WordVectorToIntInf
+        }),
+        (
+            "prim::WordArraySubWord",
+            (
+                parse_key_field("seq_size", parse_wordsize),
+                parse_key_field("ele_size", parse_wordsize)
+            ),
+            |(seq_size, ele_size)| Prim::WordArraySubWord { seq_size, ele_size }
+        ),
+        (
+            "prim::WordArrayUpdateWord",
+            (
+                parse_key_field("seqSize", parse_wordsize),
+                parse_key_field("eleSize", parse_wordsize)
+            ),
+            |(seq_size, ele_size)| Prim::WordArrayUpdateWord { seq_size, ele_size }
+        ),
+        (
+            "prim::WordVectorSubWord",
+            (
+                parse_key_field("seqSize", parse_wordsize),
+                parse_key_field("eleSize", parse_wordsize)
+            ),
+            |(seq_size, ele_size)| Prim::WordVectorSubWord { seq_size, ele_size }
+        ),
+        ("prim::Word8VectorToString", multispace0(), |_| {
+            Prim::Word8VectorToString
+        }),
+        ("prim::WorldSave", multispace0(), |_| Prim::WorldSave),
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -665,7 +1163,7 @@ fn parse_exp(s: &str) -> IResult<&str, Exp> {
         parse_exp_conapp,
         parse_exp_primapp,
         parse_exp_const,
-        // TODO: parse_exp_profile,
+        parse_exp_profile,
         parse_exp_select,
         parse_exp_tuple,
         parse_exp_var,
@@ -975,7 +1473,9 @@ fn parse_transfer_return(s: &str) -> IResult<&str, Transfer> {
 }
 
 fn parse_transfer_runtime(s: &str) -> IResult<&str, Transfer> {
-    unimplemented!()
+    named_object_parser("transfer::Runtime", take_until("}"))
+        .map(|_| unimplemented!())
+        .parse(s)
 }
 
 fn parse_transfer(s: &str) -> IResult<&str, Transfer> {
@@ -986,7 +1486,7 @@ fn parse_transfer(s: &str) -> IResult<&str, Transfer> {
         parse_transfer_goto,
         parse_transfer_raise,
         parse_transfer_return,
-        // parse_transfer_runtime,
+        parse_transfer_runtime,
     ))
     .parse(s)
 }
@@ -1567,7 +2067,7 @@ mod test {
         assert_eq!(rest.trim(), ",");
         assert_eq!(
             prim,
-            PrimPrimitive::CFunction {
+            CFunction {
                 args: vec![SmlType::Vector(Box::new(SmlType::Word(WordSize::W8)))],
                 convention: CFunctionConvention::Cdecl,
                 inline: false,
@@ -1578,59 +2078,38 @@ mod test {
                 target: CFunctionTarget::Direct("Stdio_print".to_string()),
             }
         );
-    }
-
-    #[test]
-    fn test_parse_prim_kind() {
-        let s = "DependsOnState";
-        let (rest, kind) = parse_prim_kind(s).unwrap();
-        assert_eq!(rest, "");
-        assert_eq!(kind, PrimKind::DependsOnState);
-
-        let s = "Functional";
-        let (rest, kind) = parse_prim_kind(s).unwrap();
-        assert_eq!(rest, "");
-        assert_eq!(kind, PrimKind::Functional);
-
-        let s = "Moveable";
-        let (rest, kind) = parse_prim_kind(s).unwrap();
-        assert_eq!(rest, "");
-        assert_eq!(kind, PrimKind::Moveable);
-
-        let s = "SideEffect";
-        let (rest, kind) = parse_prim_kind(s).unwrap();
-        assert_eq!(rest, "");
-        assert_eq!(kind, PrimKind::SideEffect);
     }
 
     #[test]
     fn test_parse_prim() {
-        let s = r#"primitive {prim = "Ref_ref",
-                                   kind = DependsOnState,
-                                 }"#;
+        let s = r#"
+            prim::WordEqual {size = w64},
+        "#;
         let (rest, prim) = parse_prim(s).unwrap();
-        assert_eq!(rest, "");
-        assert_eq!(prim.prim, PrimPrimitive::SmlPrim("Ref_ref".to_string()));
-        assert_eq!(prim.kind, PrimKind::DependsOnState);
+        assert_eq!(rest.trim(), ",");
+        assert_eq!(prim, Prim::WordEqual(WordSize::W64));
 
         let s = r#"
-        primitive {prim = CFunction {args = ((< Vector( Word( w8 ) ) >)),
-                                     convention = cdecl,
-                                     inline = false,
-                                     kind = Impure,
-                                     prototype = prototype {args = ((< Objptr >)),
-                                                            res = None},
-                                     return = (< Tuple () >),
-                                     symbolScope = private,
-                                     target = target {type = Direct,
-                                                      name = "Stdio_print"}},
-                   kind = DependsOnState},
+            prim::CFunction {func =
+                CFunction {
+                  args = ((< Vector( Word( w8 ) ) >)),
+                  convention = cdecl,
+                  inline = false,
+                  kind = Impure,
+                  prototype = prototype {args = ((< Objptr >)),
+                                         res = None},
+                  return = (< Tuple () >),
+                  symbolScope = private,
+                  target = target {type = Direct,
+                                   name = "Stdio_print"}
+                },
+            },
         "#;
         let (rest, prim) = parse_prim(s).unwrap();
         assert_eq!(rest.trim(), ",");
         assert_eq!(
-            prim.prim,
-            PrimPrimitive::CFunction {
+            prim,
+            Prim::CFunction(CFunction {
                 args: vec![SmlType::Vector(Box::new(SmlType::Word(WordSize::W8)))],
                 convention: CFunctionConvention::Cdecl,
                 inline: false,
@@ -1639,45 +2118,41 @@ mod test {
                 ret: SmlType::Tuple(vec![]),
                 symbol_scope: CFunctionSymbolScope::Private,
                 target: CFunctionTarget::Direct("Stdio_print".to_string()),
-            }
-        );
-        assert_eq!(prim.kind, PrimKind::DependsOnState);
+            },))
     }
 
     #[test]
     fn test_parse_exp_primapp() {
         let s = r#"
-        exp::PrimApp {prim = primitive {prim = CFunction {args = ((< Vector( Word( w8 ) ) >)),
-                                                          convention = cdecl,
-                                                          inline = false,
-                                                          kind = Impure,
-                                                          prototype = prototype {args = ((< Objptr >)),
-                                                                                 res = None},
-                                                          return = (< Tuple () >),
-                                                          symbolScope = private,
-                                                          target = target {type = Direct,
-                                                                           name = "Stdio_print"}},
-                                        kind = DependsOnState},
-                      args = (global_37)}},
+        exp::PrimApp {prim = prim::CFunction {
+          func = CFunction {
+            args = ((< Vector( Word( w8 ) ) >)),
+            convention = cdecl,
+            inline = false,
+            kind = Impure,
+            prototype = prototype {args = ((< Objptr >)),
+                                   res = None},
+            return = (< Tuple () >),
+            symbolScope = private,
+            target = target {type = Direct,
+                             name = "Stdio_print"}},},
+          args = (global_37)}},
         "#;
         let (rest, exp) = parse_exp_primapp(s).unwrap();
         assert_eq!(rest.trim(), "},");
         assert_eq!(
             exp,
             Exp::PrimApp {
-                prim: Prim {
-                    prim: PrimPrimitive::CFunction {
-                        args: vec![SmlType::Vector(Box::new(SmlType::Word(WordSize::W8)))],
-                        convention: CFunctionConvention::Cdecl,
-                        inline: false,
-                        kind: CFunctionKind::Impure,
-                        prototype: (vec![CType::Objptr], None),
-                        ret: SmlType::Tuple(vec![]),
-                        symbol_scope: CFunctionSymbolScope::Private,
-                        target: CFunctionTarget::Direct("Stdio_print".to_string()),
-                    },
-                    kind: PrimKind::DependsOnState,
-                },
+                prim: Prim::CFunction(CFunction {
+                    args: vec![SmlType::Vector(Box::new(SmlType::Word(WordSize::W8)))],
+                    convention: CFunctionConvention::Cdecl,
+                    inline: false,
+                    kind: CFunctionKind::Impure,
+                    prototype: (vec![CType::Objptr], None),
+                    ret: SmlType::Tuple(vec![]),
+                    symbol_scope: CFunctionSymbolScope::Private,
+                    target: CFunctionTarget::Direct("Stdio_print".to_string()),
+                },),
                 targs: None,
                 args: vec!["global_37".to_string()],
             }
@@ -2125,27 +2600,24 @@ mod test {
                args = (),
                statements = (statement {var = None,
                                         type = (< Tuple () >),
-                                        exp = exp::PrimApp {prim = primitive {prim = CFunction {args = ((< Vector( Word( w8 ) ) >)),
-                                                                                                convention = cdecl,
-                                                                                                inline = false,
-                                                                                                kind = Impure,
-                                                                                                prototype = prototype {args = ((< Objptr >)),
-                                                                                                                       res = None},
-                                                                                                return = (< Tuple () >),
-                                                                                                symbolScope = private,
-                                                                                                target = target {type = Direct,
-                                                                                                                 name = "Stdio_print"}},
-                                                                              kind = DependsOnState},
+                                        exp = exp::PrimApp {prim = prim::CFunction {func = CFunction {args = ((< Vector( Word( w8 ) ) >)),
+                                                                                                      convention = cdecl,
+                                                                                                      inline = false,
+                                                                                                      kind = Impure,
+                                                                                                      prototype = prototype {args = ((< Objptr >)),
+                                                                                                                             res = None},
+                                                                                                      return = (< Tuple () >),
+                                                                                                      symbolScope = private,
+                                                                                                      target = target {type = Direct,
+                                                                                                                       name = "Stdio_print"}}},
                                                             args = (global_37)}},
                              statement {var = None,
                                         type = (< Tuple () >),
-                                        exp = exp::PrimApp {prim = primitive {prim = "MLton_halt",
-                                                                              kind = DependsOnState},
+                                        exp = exp::PrimApp {prim = prim::MLtonHalt {},
                                                             args = (global_5)}},
                              statement {var = None,
                                         type = (< Tuple () >),
-                                        exp = exp::PrimApp {prim = primitive {prim = "MLton_bug",
-                                                                              kind = DependsOnState},
+                                        exp = exp::PrimApp {prim = prim::MLtonBug {},
                                                             args = (global_28)}}),
                transfer = transfer::Bug {}},
         "#;
@@ -2160,19 +2632,16 @@ mod test {
                 var: None,
                 ty: SmlType::Tuple(vec![]),
                 exp: Exp::PrimApp {
-                    prim: Prim {
-                        prim: PrimPrimitive::CFunction {
-                            args: vec![SmlType::Vector(Box::new(SmlType::Word(WordSize::W8)))],
-                            convention: CFunctionConvention::Cdecl,
-                            inline: false,
-                            kind: CFunctionKind::Impure,
-                            prototype: (vec![CType::Objptr], None),
-                            ret: SmlType::Tuple(vec![]),
-                            symbol_scope: CFunctionSymbolScope::Private,
-                            target: CFunctionTarget::Direct("Stdio_print".to_string()),
-                        },
-                        kind: PrimKind::DependsOnState,
-                    },
+                    prim: Prim::CFunction(CFunction {
+                        args: vec![SmlType::Vector(Box::new(SmlType::Word(WordSize::W8)))],
+                        convention: CFunctionConvention::Cdecl,
+                        inline: false,
+                        kind: CFunctionKind::Impure,
+                        prototype: (vec![CType::Objptr], None),
+                        ret: SmlType::Tuple(vec![]),
+                        symbol_scope: CFunctionSymbolScope::Private,
+                        target: CFunctionTarget::Direct("Stdio_print".to_string()),
+                    }),
                     targs: None,
                     args: vec!["global_37".to_string()],
                 }
@@ -2206,8 +2675,7 @@ mod test {
                                              (< Word( w64 ) >)),
                                    statements = (statement {var = Some x_121,
                                                             type = (< Datatype( "bool" ) >),
-                                                            exp = exp::PrimApp {prim = primitive {prim = "Word64_equal",
-                                                                                                  kind = DependsOnState},
+                                                            exp = exp::PrimApp {prim = prim::WordEqual {size = w64},
                                                                                 args = (x_120,
                                                                                         global_6)}}),
                                    transfer = transfer::case::Con {test = x_121,
@@ -2270,8 +2738,7 @@ mod test {
                                        args = (),
                                        statements = (statement {var = Some x_76,
                                                                 type = (< Datatype( "bool" ) >),
-                                                                exp = exp::PrimApp {prim = primitive {prim = "Ref_deref",
-                                                                                                      kind = DependsOnState},
+                                                                exp = exp::PrimApp {prim = prim::RefDeref {},
                                                                                     args = (x_0),
                                                                                     targs = ((< Datatype( "bool" ) >))}}),
                                        transfer = transfer::case::Con {test = x_76,
@@ -2281,7 +2748,7 @@ mod test {
         main = main_0,
         }"#;
 
-        let (rest, ssa) = parse_ssa(s).unwrap();
+        let (rest, ssa) = parse_ssa(&s).unwrap();
         assert_eq!(rest, "");
         assert_eq!(ssa.datatypes.len(), 2);
         assert_eq!(ssa.globals.len(), 2);
