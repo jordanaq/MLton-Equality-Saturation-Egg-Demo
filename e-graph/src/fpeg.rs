@@ -24,6 +24,7 @@ pub struct Constr {
 pub(crate) struct PrimWrapper {
     pub(crate) prim: MltPrim,
     pub(crate) targs: Option<Vec<SmlType>>,
+    pub(crate) ty: Option<SmlType>,
 }
 
 define_language! {
@@ -86,6 +87,7 @@ impl FPeg {
         datatypes: &Vec<MltDatatype>,
         scope: &HashMap<MltVarId, SmlType>,
         mlton_expr: &MltExp,
+        exp_ty: Option<&SmlType>,
     ) -> Option<Region> {
         let exp = match mlton_expr {
             MltExp::ConApp { con, args } => {
@@ -106,20 +108,26 @@ impl FPeg {
 
                 let arg_rs = args
                     .iter()
-                    .map(|a: &String| self.make_region(datatypes, scope, &MltExp::Var(a.clone())))
+                    .zip(expected_arg_tys.iter())
+                    .map(|(a, ty): (&String, &SmlType)| self.make_region(datatypes, scope, &MltExp::Var(a.clone()), Some(ty)))
                     .collect::<Option<Box<[Region]>>>()?;
                 FPegL::Construct(constr, arg_rs)
             }
             MltExp::PrimApp { prim, targs, args } => {
                 let arg_rs = args
                     .iter()
-                    .map(|a| self.make_region(datatypes, scope, &MltExp::Var(a.clone())))
-                    .collect::<Option<Box<[Region]>>>()?;
+                    .map(|a| {
+                        let ty = scope.get(a).unwrap_or_else(||
+                            panic!("Variable {} not found in scope {:?}", a, scope)
+                        ).clone();
+                        self.make_region(datatypes, scope, &MltExp::Var(a.clone()), Some(&ty))
+                    }).collect::<Option<Box<[Region]>>>()?;
 
                 FPegL::PrimApp(
                     PrimWrapper {
                         prim: prim.clone(),
                         targs: targs.clone(),
+                        ty: exp_ty.cloned(),
                     },
                     arg_rs,
                 )
@@ -127,24 +135,38 @@ impl FPeg {
             MltExp::Const(c) => FPegL::Literal(c.clone()),
             MltExp::Profile() => todo!(),
             MltExp::Select { tuple, offset } => {
-                let tup_r = self.make_region(datatypes, scope, &MltExp::Var(tuple.clone()))?;
+                let ty = scope.get(tuple).unwrap_or_else(||
+                    panic!("Variable {} not found in scope {:?}", tuple, scope)
+                ).clone();
+                let tup_r = self.make_region(datatypes, scope, &MltExp::Var(tuple.clone()), Some(&ty))?;
                 let offset_r =
-                    self.make_region(datatypes, scope, &MltExp::Const(Const::IntInf(*offset)))?;
+                    self.make_region(datatypes, scope, &MltExp::Const(Const::IntInf(*offset)), Some(&SmlType::IntInf))?;
 
                 FPegL::Select([tup_r, offset_r])
             }
             MltExp::Tuple(items) => {
                 let item_rs = items
                     .iter()
-                    .map(|i| self.make_region(datatypes, scope, &MltExp::Var(i.clone())))
-                    .collect::<Option<Box<[Region]>>>()?;
+                    .map(|i| {
+                        let ty = scope.get(i).unwrap_or_else(||
+                            panic!("Variable {} not found in scope {:?}", i, scope)
+                        ).clone();
+                        self.make_region(datatypes, scope, &MltExp::Var(i.clone()), Some(&ty))
+                    }).collect::<Option<Box<[Region]>>>()?;
 
                 FPegL::Tuple(item_rs)
             }
             MltExp::Var(v) => {
-                scope.get(v).unwrap_or_else(|| {
+                if scope.get(v).unwrap_or_else(|| {
                     panic!("Variable {} not found in scope {:?}", v, scope);
-                });
+                }) != exp_ty.unwrap_or(&SmlType::Tuple(vec![])) {
+                    panic!(
+                        "Type mismatch for variable {}: expected {:?}, found {:?}",
+                        v,
+                        exp_ty.unwrap_or(&SmlType::Datatype("Unknown".into())),
+                        scope.get(v).unwrap()
+                    );
+                }
                 FPegL::Arg(v.clone())
             }
         };
@@ -216,7 +238,7 @@ mod tests {
             args: vec!["x".into(), "xs".into()],
         };
 
-        let r1 = fpeg.make_region(&datatypes, &scope, &e1);
+        let r1 = fpeg.make_region(&datatypes, &scope, &e1, Some(&SmlType::Datatype("list_0".into())));
         assert!(r1.is_some());
 
         let e2 = MltExp::PrimApp {
@@ -225,7 +247,7 @@ mod tests {
             args: vec!["x".into(), "y".into()],
         };
 
-        let r2 = fpeg.make_region(&datatypes, &scope, &e2);
+        let r2 = fpeg.make_region(&datatypes, &scope, &e2, Some(&SmlType::Word(WordSize::W64)));
         assert!(r2.is_some());
 
         assert_eq!(fpeg.egraph.number_of_classes(), 5);

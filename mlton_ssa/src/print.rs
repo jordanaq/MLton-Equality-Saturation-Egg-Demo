@@ -973,7 +973,6 @@ mod tests {
             name: "x".to_owned(),
             ty: SmlType::Word(WordSize::W64),
         };
-        println!("{}", v.to_string());
         assert_eq!(v.to_string().parse(), Ok(v));
     }
 
@@ -1081,7 +1080,6 @@ mod tests {
                 symbol_scope: CFunctionSymbolScope::Private,
                 target: CFunctionTarget::Direct("Stdio_print".to_string()),
             };
-        println!("{}", cfunc.to_string());
         assert_eq!(cfunc.to_string().parse(), Ok(cfunc));
     }
 
@@ -1174,7 +1172,6 @@ mod tests {
         let h3 = Handler::Handle {
             label: "my_label".to_string(),
         };
-        println!("{}", h3.to_string());
         assert_eq!(h3.to_string().parse(), Ok(h3));
     }
 

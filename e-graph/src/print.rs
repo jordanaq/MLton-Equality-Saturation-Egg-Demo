@@ -32,6 +32,7 @@ impl PrettyDoc for PrimWrapper {
                 "targs",
                 option_printer_apply(|v| paren_list_printer(v), &self.targs),
             ),
+            ("ty", option_printer(&self.ty))
         ];
         named_object_printer("PrimWrapper", items)
     }
@@ -93,7 +94,7 @@ impl PrettyDoc for FPeg {
 mod tests {
     use mlton_ssa::{
         print,
-        ssa::{Const, SmlType, WordSize},
+        ssa::{Const, Prim, SmlType, WordSize},
     };
 
     use super::*;
@@ -112,11 +113,12 @@ mod tests {
     #[test]
     fn test_prim_wrapper_inverse() {
         let prim = PrimWrapper {
-            prim: mlton_ssa::ssa::Prim::make_pure_sml("add_w64"),
+            prim: Prim::WordAdd(WordSize::W64),
             targs: Some(vec![
                 SmlType::Word(WordSize::W64),
                 SmlType::Word(WordSize::W64),
             ]),
+            ty: Some(SmlType::Word(WordSize::W64)),
         };
         let s = format!("{}", pretty_print(&prim));
         let parsed: PrimWrapper = s.parse().unwrap();

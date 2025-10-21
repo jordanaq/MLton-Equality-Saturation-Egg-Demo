@@ -63,9 +63,10 @@ fn parse_prim_wrapper(s: &str) -> IResult<&str, PrimWrapper> {
         (
             parse_key_field("prim", parse_prim),
             parse_key_field("targs", option_parser(parse_sml_types)),
+            parse_key_field("ty", option_parser(parse_sml_type)),
         ),
     )
-    .map(|(prim, targs)| PrimWrapper { prim, targs })
+    .map(|(prim, targs, ty)| PrimWrapper { prim, targs, ty })
     .parse(s)
 }
 
@@ -181,7 +182,7 @@ pub fn parse_fpeg(s: &str) -> IResult<&str, FPeg> {
 #[cfg(test)]
 mod tests {
     use mlton_ssa::ssa::{
-        self, Cases, Const, FunctionId, Label, PrimPrimitive, Return, SmlType, VarId, WordSize,
+        self, Cases, Const, FunctionId, Label, Prim, Return, SmlType, VarId, WordSize,
     };
 
     use crate::fpeg::PrimWrapper;
@@ -215,46 +216,21 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_prim_wrapper() {
-        let s = r#"PrimWrapper {
-            prim = primitive { 
-                prim = "add_w64",
-                kind = Functional,
-            },
-            targs = Some ((< Word(w64) >), (< Word(w64) >) )
-        }"#;
-
-        let (_, prim_wrapper) = parse_prim_wrapper(s).unwrap();
-        assert_eq!(
-            prim_wrapper,
-            PrimWrapper {
-                prim: ssa::Prim::make_pure_sml("add_w64"),
-                targs: Some(vec![
-                    SmlType::Word(WordSize::W64),
-                    SmlType::Word(WordSize::W64)
-                ]),
-            }
-        );
-    }
-
-    #[test]
     fn test_prim_wrapper_from_str() {
         let s = r#"PrimWrapper {
-            prim = primitive { 
-                prim = "add_w64",
-                kind = Functional,
+            prim = prim::WordAdd { 
+                size = w64
             },
-            targs = Some ((< Word(w64) >), (< Word(w64) >) )
+            targs = None,
+            ty = Some (< Word(w64) >)
         }"#;
         let prim_wrapper: PrimWrapper = s.parse().unwrap();
         assert_eq!(
             prim_wrapper,
             PrimWrapper {
-                prim: ssa::Prim::make_pure_sml("add_w64"),
-                targs: Some(vec![
-                    SmlType::Word(WordSize::W64),
-                    SmlType::Word(WordSize::W64)
-                ]),
+                prim: Prim::WordAdd(WordSize::W64),
+                targs: None,
+                ty: Some(SmlType::Word(WordSize::W64)),
             }
         );
     }

@@ -28,7 +28,7 @@ fn sk_block_from_mltblock(
     let stmts: Vec<Region> = statements
         .iter()
         .map(|MltStatement { var, ty, exp }| {
-            sk.insert_exp(&scope, exp).unwrap_or_else(|| {
+            sk.insert_exp(&scope, exp, Some(ty)).unwrap_or_else(|| {
                 panic!(
                     "Failed to convert expression `{:?}` in block {}",
                     exp, label
@@ -43,37 +43,58 @@ fn sk_block_from_mltblock(
             func: func.clone(),
             args: args
                 .iter()
-                .map(|v| sk.insert_exp(&scope, &MltExp::Var(v.clone())).unwrap())
-                .collect::<Vec<Region>>(),
+                .map(|v| {
+                    let ty = scope.get(v).unwrap_or_else(||
+                        panic!("Variable {} not found in scope {:?}", v, scope)
+                    );
+                    sk.insert_exp(&scope, &MltExp::Var(v.clone()), Some(ty)).unwrap()
+                }).collect::<Vec<Region>>(),
             ret: ret.clone(),
         },
         MltTransfer::Case {
             test,
             cases,
             default,
-        } => SkTransfer::Case {
-            test: sk.insert_exp(&scope, &MltExp::Var(test.clone())).unwrap(),
-            cases: cases.clone(),
-            default: default.clone(),
+        } => {
+            let ty = scope.get(test).unwrap_or_else(||
+                panic!("Variable {} not found in scope {:?}", test, scope)
+            );
+            SkTransfer::Case {
+                test: sk.insert_exp(&scope, &MltExp::Var(test.clone()), Some(ty)).unwrap(),
+                cases: cases.clone(),
+                default: default.clone(),
+            }
         },
         MltTransfer::Goto { dst, args } => SkTransfer::Goto {
             dst: dst.clone(),
             args: args
                 .iter()
-                .map(|v| sk.insert_exp(&scope, &MltExp::Var(v.clone())).unwrap())
-                .collect::<Vec<Region>>(),
+                .map(|v| {
+                    let ty = scope.get(v).unwrap_or_else(||
+                        panic!("Variable {} not found in scope {:?}", v, scope)
+                    );
+                    sk.insert_exp(&scope, &MltExp::Var(v.clone()), Some(ty)).unwrap()
+                }).collect::<Vec<Region>>(),
         },
         MltTransfer::Raise { args } => SkTransfer::Raise {
             args: args
                 .iter()
-                .map(|v| sk.insert_exp(&scope, &MltExp::Var(v.clone())).unwrap())
-                .collect::<Vec<Region>>(),
+                .map(|v| {
+                    let ty = scope.get(v).unwrap_or_else(||
+                        panic!("Variable {} not found in scope {:?}", v, scope)
+                    );
+                    sk.insert_exp(&scope, &MltExp::Var(v.clone()), Some(ty)).unwrap()
+                }).collect::<Vec<Region>>(),
         },
         MltTransfer::Return { args } => SkTransfer::Return {
             args: args
                 .iter()
-                .map(|v| sk.insert_exp(&scope, &MltExp::Var(v.clone())).unwrap())
-                .collect::<Vec<Region>>(),
+                .map(|v| {
+                    let ty = scope.get(v).unwrap_or_else(||
+                        panic!("Variable {} not found in scope {:?}", v, scope)
+                    );
+                    sk.insert_exp(&scope, &MltExp::Var(v.clone()), Some(ty)).unwrap()
+                }).collect::<Vec<Region>>(),
         },
         MltTransfer::Runtime => SkTransfer::Runtime,
     };
@@ -130,8 +151,10 @@ pub fn sk_from_mltonssa(mlton: &MltSsa) -> Skeleton {
 
     let mut scope = HashMap::<VarId, SmlType>::new();
 
+    let mut state_r: Option<Region> = None;
+
     for MltStatement { var, ty, exp } in mlton.globals.clone() {
-        let exp_r = sk.insert_exp(&scope, &exp).unwrap_or_else(|| {
+        let exp_r = sk.insert_exp(&scope, &exp, Some(&ty)).unwrap_or_else(|| {
             panic!(
                 "Failed to convert exp `{:?}` in statement for `{:?}`",
                 exp, var
@@ -170,27 +193,24 @@ mod tests {
                args = (),
                statements = (statement {var = None,
                                         type = (< Tuple () >),
-                                        exp = exp::PrimApp {prim = primitive {prim = CFunction {args = ((< Vector( Word( w8 ) ) >)),
-                                                                                                convention = cdecl,
-                                                                                                inline = false,
-                                                                                                kind = Impure,
-                                                                                                prototype = prototype {args = ((< Objptr >)),
-                                                                                                                       res = None},
-                                                                                                return = (< Tuple () >),
-                                                                                                symbolScope = private,
-                                                                                                target = target {type = Direct,
-                                                                                                                 name = "Stdio_print"}},
-                                                                              kind = DependsOnState},
+                                        exp = exp::PrimApp {prim = prim::CFunction {func = CFunction {args = ((< Vector( Word( w8 ) ) >)),
+                                                                                                      convention = cdecl,
+                                                                                                      inline = false,
+                                                                                                      kind = Impure,
+                                                                                                      prototype = prototype {args = ((< Objptr >)),
+                                                                                                                             res = None},
+                                                                                                      return = (< Tuple () >),
+                                                                                                      symbolScope = private,
+                                                                                                      target = target {type = Direct,
+                                                                                                                       name = "Stdio_print"}}},
                                                             args = (global_37)}},
                              statement {var = None,
                                         type = (< Tuple () >),
-                                        exp = exp::PrimApp {prim = primitive {prim = "MLton_halt",
-                                                                              kind = DependsOnState},
+                                        exp = exp::PrimApp {prim = prim::MLtonHalt {},
                                                             args = (global_5)}},
                              statement {var = None,
                                         type = (< Tuple () >),
-                                        exp = exp::PrimApp {prim = primitive {prim = "MLton_bug",
-                                                                              kind = DependsOnState},
+                                        exp = exp::PrimApp {prim = prim::MLtonBug {},
                                                             args = (global_28)}}),
                transfer = transfer::Bug {}}
         "#;
@@ -211,42 +231,41 @@ mod tests {
     #[test]
     fn test_sk_function_from_mltfunction() {
         let s = r#"
-            function {name = "main_0",
-                              mayInline = false,
-                              args = (),
-                              start = L_52,
-                              returns = None,
-                              raises = None,
-                              blocks = (block {label = L_52,
-                                               args = (),
-                                               statements = (),
-                                               transfer = transfer::Goto {dst = loop_5,
-                                                                          args = (global_41,
-                                                                                  global_8,
-                                                                                  global_9)}},
-                                        block {label = loop_5,
-                                               args = (x_78:
-                                                         (< Datatype( "list_3" ) >),
-                                                       x_81:
-                                                         (< Word( w64 ) >),
-                                                       x_120:
-                                                         (< Word( w64 ) >)),
-                                               statements = (statement {var = Some x_121,
-                                                                        type = (< Datatype( "bool" ) >),
-                                                                        exp = exp::PrimApp {prim = primitive {prim = "Word64_equal",
-                                                                                                              kind = DependsOnState},
-                                                                                            args = (x_120,
-                                                                                                    global_6)}}),
-                                               transfer = transfer::case::Con {test = x_121,
-                                                                               cases =   (true => L_80,
-                                                                                          false => L_55)}})}
-        "#;
+        function {name = "main_0",
+                  mayInline = false,
+                  args = (),
+                  start = L_52,
+                  returns = None,
+                  raises = None,
+                  blocks = (block {label = L_52,
+                                   args = (),
+                                   statements = (),
+                                   transfer = transfer::Goto {dst = loop_5,
+                                                              args = (global_41,
+                                                                      global_8,
+                                                                      global_9)}},
+                            block {label = loop_5,
+                                   args = (x_78:
+                                             (< Datatype( "list_3" ) >),
+                                           x_81:
+                                             (< Word( w64 ) >),
+                                           x_120:
+                                             (< Word( w64 ) >)),
+                                   statements = (statement {var = Some x_121,
+                                                            type = (< Datatype( "bool" ) >),
+                                                            exp = exp::PrimApp {prim = prim::WordEqual {size = w64},
+                                                                                args = (x_120,
+                                                                                        global_6)}}),
+                                   transfer = transfer::case::Con {test = x_121,
+                                                                   cases =   (true => L_80,
+                                                                              false => L_55)}})}
+       "#;
         let mlt_function: MltFunction = FromStr::from_str(s.trim()).unwrap();
         let mut sk = Skeleton::default();
         let scope = HashMap::<VarId, SmlType>::from([
             ("global_6".into(), SmlType::Word(MltWordSize::W64)),
             ("global_8".into(), SmlType::Word(MltWordSize::W64)),
-            ("global_9".into(), SmlType::Datatype("list_3".into())),
+            ("global_9".into(), SmlType::Word(MltWordSize::W64)),
             ("global_41".into(), SmlType::Datatype("list_3".into())),
         ]);
         sk.datatypes = vec![
@@ -280,11 +299,11 @@ mod tests {
             SkTransfer::Goto {
                 dst: "loop_5".to_string(),
                 args: vec![
-                    sk.insert_exp(&scope, &MltExp::Var("global_41".into()))
+                    sk.insert_exp(&scope, &MltExp::Var("global_41".into()), Some(&SmlType::Datatype("list_3".into())))
                         .unwrap(),
-                    sk.insert_exp(&scope, &MltExp::Var("global_8".into()))
+                    sk.insert_exp(&scope, &MltExp::Var("global_8".into()), Some(&SmlType::Word(MltWordSize::W64)))
                         .unwrap(),
-                    sk.insert_exp(&scope, &MltExp::Var("global_9".into()))
+                    sk.insert_exp(&scope, &MltExp::Var("global_9".into()), Some(&SmlType::Word(MltWordSize::W64)))
                         .unwrap(),
                 ]
             }
@@ -309,8 +328,8 @@ mod tests {
                        type = (< Vector( Word( w8 ) ) >),
                        exp = exp::Const {const = const::WordVector {const = "Overflow"}}},
             statement {var = Some global_7,
-                                type = (< Datatype( "list_3" ) >),
-                                exp = exp::ConApp {con = "nil_0", args = ()}},
+                       type = (< Datatype( "list_3" ) >),
+                       exp = exp::ConApp {con = "nil_0", args = ()}},
             statement {var = Some global_8,
                        type = (< Word( w64 ) >),
                        exp = exp::Const {const = const::Word {const = 0x1:w64}}},
@@ -318,12 +337,12 @@ mod tests {
                        type = (< Word( w64 ) >),
                        exp = exp::Const {const = const::Word {const = 0x4000000000000000:w64}}},
             statement {var = Some global_40,
-                                type = (< Datatype( "list_3" ) >),
-                                exp = exp::Var {var = global_7}},
+                       type = (< Datatype( "list_3" ) >),
+                       exp = exp::Var {var = global_7}},
             statement {var = Some global_41,
                        type = (< Datatype( "list_3" ) >),
                        exp = exp::ConApp {con = "::_2",
-                                          args = (global_40)}}
+                       args = (global_40)}}
         ),
         functions = (
             function {name = "main_0",
@@ -352,8 +371,7 @@ mod tests {
                                        args = (),
                                        statements = (statement {var = Some x_76,
                                                                 type = (< Datatype( "bool" ) >),
-                                                                exp = exp::PrimApp {prim = primitive {prim = "Ref_deref",
-                                                                                                      kind = DependsOnState},
+                                                                exp = exp::PrimApp {prim = prim::RefDeref {},
                                                                                     args = (x_0),
                                                                                     targs = ((< Datatype( "bool" ) >))}}),
                                        transfer = transfer::case::Con {test = x_76,

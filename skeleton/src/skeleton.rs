@@ -75,8 +75,8 @@ impl Default for Skeleton {
 }
 
 impl Skeleton {
-    pub fn insert_exp(&mut self, scope: &HashMap<VarId, SmlType>, exp: &MltExp) -> Option<Region> {
-        self.graph.make_region(&self.datatypes, scope, exp)
+    pub fn insert_exp(&mut self, scope: &HashMap<VarId, SmlType>, exp: &MltExp, ty: Option<&SmlType>) -> Option<Region> {
+        self.graph.make_region(&self.datatypes, scope, exp, ty)
     }
 
     pub fn insert_arg(&mut self, var: &Var) -> Region {
@@ -85,7 +85,7 @@ impl Skeleton {
         }
         let scope = HashMap::from([(var.name.clone(), var.ty.clone())]);
         self.graph
-            .make_region(&self.datatypes, &scope, &MltExp::Var(var.name.clone()))
+            .make_region(&self.datatypes, &scope, &MltExp::Var(var.name.clone()), Some(&var.ty))
             .unwrap_or_else(|| {
                 panic!(
                     "Failed to insert function argument region for var {:?}",

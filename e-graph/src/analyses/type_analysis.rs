@@ -13,7 +13,7 @@ impl Analysis<FPegL> for TypeAnalysis {
 
     fn make(egraph: &mut EGraph<FPegL, Self>, enode: &FPegL) -> Self::Data {
         match enode {
-            FPegL::PrimApp(prim_wrapper, _) => prim_result_type(prim_wrapper),
+            FPegL::PrimApp(PrimWrapper {ty, ..}, _) => ty.clone(),
             FPegL::Construct(constr, ids) => todo!(),
             FPegL::Select([tuple_id, offset_id]) => {
                 let tup_ty = match egraph[*tuple_id].data.clone() {
@@ -46,13 +46,6 @@ impl Analysis<FPegL> for TypeAnalysis {
         } else {
             DidMerge(false, false)
         }
-    }
-}
-
-fn prim_result_type(wrapper: &PrimWrapper) -> Option<SmlType> {
-    match &wrapper.prim.prim {
-        PrimPrimitive::CFunction { ret, .. } => Some(ret.clone()),
-        PrimPrimitive::SmlPrim(prim) => todo!(),
     }
 }
 
