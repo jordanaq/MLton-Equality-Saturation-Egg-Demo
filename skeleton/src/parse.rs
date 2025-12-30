@@ -305,16 +305,18 @@ pub fn parse_skeleton(s: &str) -> IResult<&str, crate::Skeleton> {
             parse_key_field("globals", parse_regions), // TODO: stateful globals
             parse_key_field("functions", paren_list_parser(parse_sk_function)),
             parse_key_field("main", parse_var_name),
+            parse_key_field("state", option_parser(parse_region)),
             parse_key_field("fpeg", e_graph::parse::parse_fpeg),
         ),
     )
     .map(
-        |(datatypes, globals, functions, main, graph)| crate::Skeleton {
+        |(datatypes, globals, functions, main, state, graph)| crate::Skeleton {
             datatypes,
             globals,
             functions,
             graph,
             main,
+            state,
         },
     )
     .parse(s)

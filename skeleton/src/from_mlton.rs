@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, os::linux::raw::stat};
 
 use e_graph::fpeg::Region;
 use mlton_ssa::ssa::{
@@ -182,16 +182,34 @@ pub fn sk_from_mltonssa(mlton: &MltSsa) -> Skeleton {
 
     let mut scope = HashMap::<VarId, SmlType>::new();
 
-    // Initial state is the same as the state arg to the main function
-    // let mut state_r: Option<Region> = None;
+    let mut state_r: Option<Region> = None;
 
+    // Don't change global order to maintain state
     for MltStatement { var, ty, exp } in mlton.globals.clone() {
-        let exp_r = sk.insert_exp(&scope, &exp, Some(&ty)).unwrap_or_else(|| {
-            panic!(
-                "Failed to convert exp `{:?}` in statement for `{:?}`",
-                exp, var
-            )
-        });
+        let exp_r = if !exp.is_pure() {
+            let state = state_r.unwrap_or_else(|| {
+                let r = sk.insert_state_arg("global_init".into());
+                state_r = Some(r.clone());
+                r
+            });
+            state_r = Some(
+                sk.insert_stateful_exp(&scope, &exp, &state, Some(&ty))
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "Failed to convert stateful expression `{:?}` in global statement for `{:?}`",
+                            exp, var
+                        )
+                    }),
+            );
+            state_r.unwrap()
+        } else {
+            sk.insert_exp(&scope, &exp, Some(&ty)).unwrap_or_else(|| {
+                panic!(
+                    "Failed to convert exp `{:?}` in statement for `{:?}`",
+                    exp, var
+                )
+            })
+        };
 
         // TODO: Handle stateful operations
         let var = var.unwrap();
@@ -200,6 +218,8 @@ pub fn sk_from_mltonssa(mlton: &MltSsa) -> Skeleton {
     }
 
     sk.globals = globals;
+
+    sk.state = state_r;
 
     sk.functions = mlton
         .functions

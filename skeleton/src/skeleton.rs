@@ -67,6 +67,7 @@ pub struct Skeleton {
     pub functions: Vec<Function>,
     pub(crate) graph: FPeg,
     pub main: FunctionId,
+    pub state: Option<Region>,
 }
 
 impl Default for Skeleton {
@@ -77,6 +78,7 @@ impl Default for Skeleton {
             functions: vec![],
             graph: FPeg::new(),
             main: "(* Bug *)".to_string(),
+            state: None,
         }
     }
 }

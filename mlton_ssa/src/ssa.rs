@@ -788,7 +788,10 @@ mod tests {
         assert_eq!(*l.get("L3".into()).unwrap(), vec!["L2"]);
         assert_eq!(*l.get("L4".into()).unwrap(), vec!["L2"]);
         assert_eq!(*l.get("L5".into()).unwrap(), vec!["L2"]);
-        assert_eq!(*l.get("L6".into()).unwrap(), vec!["L3", "L4"]);
+        let preds_l6 = l.get("L6".into()).unwrap();
+        assert_eq!(preds_l6.len(), 2);
+        assert!(preds_l6.contains(&"L3".into()));
+        assert!(preds_l6.contains(&"L4".into()));
     }
 
     #[test]
