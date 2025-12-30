@@ -456,10 +456,12 @@ impl Block {
     }
 }
 
+type Constr = Vec<(ConstructorId, Vec<SmlType>)>;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Datatype {
     pub tycon: String, /* TODO */
-    pub constrs: Vec<(ConstructorId, Vec<SmlType>)>,
+    pub constrs: Constr,
 }
 
 impl Datatype {
@@ -469,6 +471,15 @@ impl Datatype {
             self.tycon, cons
         );
         self.constrs.iter().any(|(cons_tag, _)| cons_tag == cons)
+    }
+
+    pub fn get_constructor_types(&self, cons: &str) -> Option<&Vec<SmlType>> {
+        for (cons_tag, types) in &self.constrs {
+            if cons_tag == cons {
+                return Some(types);
+            }
+        }
+        None
     }
 }
 

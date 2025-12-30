@@ -46,7 +46,7 @@ define_language! {
     }
 }
 
-type Analysis = (); // TODO:
+type Analysis = crate::analyses::type_analysis::TypeAnalysis;
 
 /// Wrapper for FPeg e-graph
 #[derive(Debug, Clone)]
