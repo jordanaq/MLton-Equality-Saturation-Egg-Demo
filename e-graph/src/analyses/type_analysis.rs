@@ -13,7 +13,7 @@ impl Analysis<FPegL> for TypeAnalysis {
 
     fn make(egraph: &mut EGraph<FPegL, Self>, enode: &FPegL) -> Self::Data {
         match enode {
-            FPegL::PrimApp(PrimWrapper {ty, ..}, _) => ty.clone(),
+            FPegL::PrimApp(PrimWrapper { ty, .. }, _) => ty.clone(),
             FPegL::Construct(constr, ids) => todo!(),
             FPegL::Select([tuple_id, offset_id]) => {
                 let tup_ty = match egraph[*tuple_id].data.clone() {

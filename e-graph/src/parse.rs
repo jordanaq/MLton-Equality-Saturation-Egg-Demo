@@ -1,21 +1,16 @@
 use std::str::FromStr;
 
 use nom::{
-    AsChar, IResult, Parser,
-    branch::alt,
+    IResult, Parser,
     bytes::complete::{tag, take_while1},
-    character::multispace0,
-    sequence::{delimited, preceded, separated_pair, terminated},
+    sequence::delimited,
 };
 
-use mlton_ssa::{
-    parse::{parse_const, parse_prim, parse_sml_type, parse_sml_types, parse_var_name},
-    ssa::SmlType,
-};
+use mlton_ssa::parse::{parse_prim, parse_sml_type, parse_sml_types};
 
 use parse_utils::*;
 
-use crate::fpeg::{Constr, FPeg, FPegL, PrimWrapper, Region};
+use crate::fpeg::{Constr, FPeg, PrimWrapper, Region};
 
 pub fn parse_region(s: &str) -> IResult<&str, Region> {
     delimited(
@@ -181,9 +176,7 @@ pub fn parse_fpeg(s: &str) -> IResult<&str, FPeg> {
 
 #[cfg(test)]
 mod tests {
-    use mlton_ssa::ssa::{
-        self, Cases, Const, FunctionId, Label, Prim, Return, SmlType, VarId, WordSize,
-    };
+    use mlton_ssa::ssa::{Prim, SmlType, WordSize};
 
     use crate::fpeg::PrimWrapper;
 

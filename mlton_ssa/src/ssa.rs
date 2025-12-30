@@ -37,6 +37,7 @@ pub enum SmlType {
     Vector(Box<SmlType>),
     Weak(Box<SmlType>),
     Word(WordSize),
+    State, // Internal use only
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -271,6 +272,85 @@ pub enum Prim {
     WorldSave,
 }
 
+impl Prim {
+    pub fn is_pure(&self) -> bool {
+        use Prim::*;
+        match self {
+            CFunction(cfunc) => matches!(cfunc.kind, CFunctionKind::Pure),
+            ArrayLength
+            | ArrayUninitIsNop
+            | CPointerAdd
+            | CPointerDiff
+            | CPointerEqual
+            | CPointerFromWord
+            | CPointerLt
+            | CPointerSub
+            | CPointerToWord
+            | ExnExtra
+            | ExnName
+            | IntInfAdd
+            | IntInfAndb
+            | IntInfArshift
+            | IntInfCompare
+            | IntInfGcd
+            | IntInfLshift
+            | IntInfMul
+            | IntInfNeg
+            | IntInfNotb
+            | IntInfOrb
+            | IntInfQuot
+            | IntInfRem
+            | IntInfSub
+            | IntInfToString
+            | IntInfToWord(_)
+            | IntInfXorb
+            | MLtonBogus
+            | MLtonEq
+            | MLtonEqual
+            | MLtonHash
+            | MLtonHandlesSignals
+            | RealAbs(..)
+            | RealCastToWord(..)
+            | RealEqual(..)
+            | RealLe(..)
+            | RealLt(..)
+            | RealNeg(..)
+            | RealQequal(..)
+            | RealRndToWord(..)
+            | StringToWord8Vector
+            | VectorLength
+            | VectorSub
+            | VectorVector
+            | WordVectorSubWord { .. }
+            | Word8VectorToString
+            | WordVectorToIntInf
+            | WordAdd(..)
+            | WordAddCheckP(..)
+            | WordAndb(..)
+            | WordCastToReal(..)
+            | WordEqual(..)
+            | WordExtdToWord(..)
+            | WordLt(..)
+            | WordMul(..)
+            | WordMulCheckP(..)
+            | WordNeg(..)
+            | WordNegCheckP(..)
+            | WordNotb(..)
+            | WordOrb(..)
+            | WordQuot(..)
+            | WordRem(..)
+            | WordRol(..)
+            | WordRor(..)
+            | WordRshift(..)
+            | WordSub(..)
+            | WordSubCheckP(..)
+            | WordToIntInf
+            | WordXorb(..) => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Exp {
     ConApp {
@@ -292,11 +372,28 @@ pub enum Exp {
     Var(VarId),
 }
 
+impl Exp {
+    pub fn is_pure(&self) -> bool {
+        use Exp::*;
+
+        match self {
+            PrimApp { prim, .. } => prim.is_pure(),
+            _ => true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Statement {
     pub var: Option<VarId>,
     pub ty: SmlType,
     pub exp: Exp,
+}
+
+impl Statement {
+    pub fn is_pure(&self) -> bool {
+        self.exp.is_pure()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -353,6 +450,12 @@ pub struct Block {
     pub transfer: Transfer,
 }
 
+impl Block {
+    pub fn is_pure(&self) -> bool {
+        self.statements.iter().all(|stmt| stmt.is_pure())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Datatype {
     pub tycon: String, /* TODO */
@@ -389,6 +492,17 @@ pub struct DominatorTree {
 }
 
 impl Function {
+    pub fn is_pure(&self) -> bool {
+        self.blocks.iter().all(|block| block.is_pure())
+    }
+
+    pub fn is_block_pure(&self, label: &Label) -> Option<bool> {
+        self.blocks
+            .iter()
+            .find(|b| &b.label == label)
+            .map(|b| b.is_pure())
+    }
+
     pub fn block_adjacency_list(&self) -> Cfg {
         let mut l: HashMap<Label, Vec<Label>> = HashMap::new();
 

@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use pretty::{Pretty, RcDoc};
+use pretty::RcDoc;
 
 use print_utils::*;
 
@@ -32,7 +32,7 @@ impl PrettyDoc for PrimWrapper {
                 "targs",
                 option_printer_apply(|v| paren_list_printer(v), &self.targs),
             ),
-            ("ty", option_printer(&self.ty))
+            ("ty", option_printer(&self.ty)),
         ];
         named_object_printer("PrimWrapper", items)
     }
@@ -92,10 +92,7 @@ impl PrettyDoc for FPeg {
 
 #[cfg(test)]
 mod tests {
-    use mlton_ssa::{
-        print,
-        ssa::{Const, Prim, SmlType, WordSize},
-    };
+    use mlton_ssa::ssa::{Prim, SmlType, WordSize};
 
     use super::*;
 

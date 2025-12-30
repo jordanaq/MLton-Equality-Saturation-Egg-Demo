@@ -1,11 +1,9 @@
 use std::collections::HashMap;
 
-use e_graph::fpeg::{FPeg, Region};
+use e_graph::fpeg::Region;
 use mlton_ssa::ssa::{
-    Block as MltBlock, Cases as MltCases, ConstructorId, Datatype as MltDatatype, Exp as MltExp,
-    Function as MltFunction, FunctionId, Handler as MltHandler, Label, MltonSsa as MltSsa,
-    Return as MltReturn, SmlType, Statement as MltStatement, Transfer as MltTransfer,
-    Var as MltVar, VarId, WordSize as MltWordSize,
+    Block as MltBlock, Exp as MltExp, Function as MltFunction, MltonSsa as MltSsa, SmlType,
+    Statement as MltStatement, Transfer as MltTransfer, VarId,
 };
 
 use crate::{
@@ -25,30 +23,46 @@ fn sk_block_from_mltblock(
 ) -> SkBlock {
     let arg_rs: Vec<Region> = args.iter().map(|var| sk.insert_arg(var)).collect();
 
-    let stmts: Vec<Region> = statements
-        .iter()
-        .map(|MltStatement { var, ty, exp }| {
+    let state_r = sk.insert_state_arg(label.as_str());
+    let mut state_prev = None;
+
+    for stmt @ MltStatement { ty, exp, .. } in statements {
+        if !stmt.is_pure() {
+            let state = state_prev.unwrap_or(state_r);
+            state_prev = Some(
+                sk.insert_stateful_exp(scope, &exp, &state, Some(ty))
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "Failed to convert stateful expression `{:?}` in block {}",
+                            exp, label
+                        )
+                    }),
+            );
+        } else {
             sk.insert_exp(&scope, exp, Some(ty)).unwrap_or_else(|| {
                 panic!(
-                    "Failed to convert expression `{:?}` in block {}",
+                    "Failed to convert pure expression `{:?}` in block {}",
                     exp, label
                 )
-            })
-        })
-        .collect();
+            });
+        }
+    }
 
     let sk_transfer = match transfer {
         MltTransfer::Bug => SkTransfer::Bug,
         MltTransfer::Call { func, args, ret } => SkTransfer::Call {
             func: func.clone(),
+            state: state_prev.unwrap_or(state_r),
             args: args
                 .iter()
                 .map(|v| {
-                    let ty = scope.get(v).unwrap_or_else(||
-                        panic!("Variable {} not found in scope {:?}", v, scope)
-                    );
-                    sk.insert_exp(&scope, &MltExp::Var(v.clone()), Some(ty)).unwrap()
-                }).collect::<Vec<Region>>(),
+                    let ty = scope
+                        .get(v)
+                        .unwrap_or_else(|| panic!("Variable {} not found in scope {:?}", v, scope));
+                    sk.insert_exp(&scope, &MltExp::Var(v.clone()), Some(ty))
+                        .unwrap()
+                })
+                .collect::<Vec<Region>>(),
             ret: ret.clone(),
         },
         MltTransfer::Case {
@@ -56,51 +70,64 @@ fn sk_block_from_mltblock(
             cases,
             default,
         } => {
-            let ty = scope.get(test).unwrap_or_else(||
-                panic!("Variable {} not found in scope {:?}", test, scope)
-            );
+            let ty = scope
+                .get(test)
+                .unwrap_or_else(|| panic!("Variable {} not found in scope {:?}", test, scope));
             SkTransfer::Case {
-                test: sk.insert_exp(&scope, &MltExp::Var(test.clone()), Some(ty)).unwrap(),
+                test: sk
+                    .insert_exp(&scope, &MltExp::Var(test.clone()), Some(ty))
+                    .unwrap(),
+                state: state_prev.unwrap_or(state_r),
                 cases: cases.clone(),
                 default: default.clone(),
             }
-        },
+        }
         MltTransfer::Goto { dst, args } => SkTransfer::Goto {
             dst: dst.clone(),
+            state: state_prev.unwrap_or(state_r),
             args: args
                 .iter()
                 .map(|v| {
-                    let ty = scope.get(v).unwrap_or_else(||
-                        panic!("Variable {} not found in scope {:?}", v, scope)
-                    );
-                    sk.insert_exp(&scope, &MltExp::Var(v.clone()), Some(ty)).unwrap()
-                }).collect::<Vec<Region>>(),
+                    let ty = scope
+                        .get(v)
+                        .unwrap_or_else(|| panic!("Variable {} not found in scope {:?}", v, scope));
+                    sk.insert_exp(&scope, &MltExp::Var(v.clone()), Some(ty))
+                        .unwrap()
+                })
+                .collect::<Vec<Region>>(),
         },
         MltTransfer::Raise { args } => SkTransfer::Raise {
+            state: state_prev.unwrap_or(state_r),
             args: args
                 .iter()
                 .map(|v| {
-                    let ty = scope.get(v).unwrap_or_else(||
-                        panic!("Variable {} not found in scope {:?}", v, scope)
-                    );
-                    sk.insert_exp(&scope, &MltExp::Var(v.clone()), Some(ty)).unwrap()
-                }).collect::<Vec<Region>>(),
+                    let ty = scope
+                        .get(v)
+                        .unwrap_or_else(|| panic!("Variable {} not found in scope {:?}", v, scope));
+                    sk.insert_exp(&scope, &MltExp::Var(v.clone()), Some(ty))
+                        .unwrap()
+                })
+                .collect::<Vec<Region>>(),
         },
         MltTransfer::Return { args } => SkTransfer::Return {
+            state: state_prev.unwrap_or(state_r),
             args: args
                 .iter()
                 .map(|v| {
-                    let ty = scope.get(v).unwrap_or_else(||
-                        panic!("Variable {} not found in scope {:?}", v, scope)
-                    );
-                    sk.insert_exp(&scope, &MltExp::Var(v.clone()), Some(ty)).unwrap()
-                }).collect::<Vec<Region>>(),
+                    let ty = scope
+                        .get(v)
+                        .unwrap_or_else(|| panic!("Variable {} not found in scope {:?}", v, scope));
+                    sk.insert_exp(&scope, &MltExp::Var(v.clone()), Some(ty))
+                        .unwrap()
+                })
+                .collect::<Vec<Region>>(),
         },
         MltTransfer::Runtime => SkTransfer::Runtime,
     };
 
     SkBlock {
         label: label.clone(),
+        state: state_r,
         args: arg_rs,
         transfer: sk_transfer,
     }
@@ -111,6 +138,9 @@ fn sk_function_from_mltfunction(
     sk: &mut Skeleton,
     global_scope: &HashMap<VarId, SmlType>,
 ) -> SkFunction {
+    // State going into the function, unused in e-graph as it is the same as the state going in to the first block
+    let state = sk.insert_state_arg(mlt_func.name.as_str());
+
     let arg_rs: Vec<Region> = mlt_func.args.iter().map(|var| sk.insert_arg(var)).collect();
 
     let scopes = mlt_func.get_scopes();
@@ -132,6 +162,7 @@ fn sk_function_from_mltfunction(
         .collect();
 
     SkFunction {
+        state,
         args: arg_rs,
         blocks,
         may_inline: mlt_func.may_inline,
@@ -151,7 +182,8 @@ pub fn sk_from_mltonssa(mlton: &MltSsa) -> Skeleton {
 
     let mut scope = HashMap::<VarId, SmlType>::new();
 
-    let mut state_r: Option<Region> = None;
+    // Initial state is the same as the state arg to the main function
+    // let mut state_r: Option<Region> = None;
 
     for MltStatement { var, ty, exp } in mlton.globals.clone() {
         let exp_r = sk.insert_exp(&scope, &exp, Some(&ty)).unwrap_or_else(|| {
@@ -183,6 +215,8 @@ pub fn sk_from_mltonssa(mlton: &MltSsa) -> Skeleton {
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
+
+    use mlton_ssa::ssa::{Datatype as MltDatatype, WordSize as MltWordSize};
 
     use super::*;
 
@@ -298,16 +332,31 @@ mod tests {
             sk_function.blocks[0].transfer,
             SkTransfer::Goto {
                 dst: "loop_5".to_string(),
+                state: sk.insert_state_arg("L_52".into()),
                 args: vec![
-                    sk.insert_exp(&scope, &MltExp::Var("global_41".into()), Some(&SmlType::Datatype("list_3".into())))
-                        .unwrap(),
-                    sk.insert_exp(&scope, &MltExp::Var("global_8".into()), Some(&SmlType::Word(MltWordSize::W64)))
-                        .unwrap(),
-                    sk.insert_exp(&scope, &MltExp::Var("global_9".into()), Some(&SmlType::Word(MltWordSize::W64)))
-                        .unwrap(),
+                    sk.insert_exp(
+                        &scope,
+                        &MltExp::Var("global_41".into()),
+                        Some(&SmlType::Datatype("list_3".into()))
+                    )
+                    .unwrap(),
+                    sk.insert_exp(
+                        &scope,
+                        &MltExp::Var("global_8".into()),
+                        Some(&SmlType::Word(MltWordSize::W64))
+                    )
+                    .unwrap(),
+                    sk.insert_exp(
+                        &scope,
+                        &MltExp::Var("global_9".into()),
+                        Some(&SmlType::Word(MltWordSize::W64))
+                    )
+                    .unwrap(),
                 ]
             }
         );
+        println!("sk_function: {:#?}", sk_function);
+        println!("e_graph: {:#?}", sk.graph);
     }
 
     #[test]

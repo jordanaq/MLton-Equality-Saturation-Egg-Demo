@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashSet},
-    str::FromStr,
-};
+use std::{collections::HashSet, str::FromStr};
 
 use ordered_float::OrderedFloat;
 
@@ -132,6 +129,10 @@ fn parse_sml_type_word(s: &str) -> IResult<&str, SmlType> {
         .parse(s)
 }
 
+fn parse_sml_type_state(s: &str) -> IResult<&str, SmlType> {
+    tagify_parser(tag("State")).map(|_| SmlType::State).parse(s)
+}
+
 pub(crate) fn parse_sml_type_raw(s: &str) -> IResult<&str, SmlType> {
     alt((
         parse_sml_type_array,
@@ -145,6 +146,7 @@ pub(crate) fn parse_sml_type_raw(s: &str) -> IResult<&str, SmlType> {
         parse_sml_type_vector,
         parse_sml_type_weak,
         parse_sml_type_word,
+        parse_sml_type_state,
     ))
     .parse(s)
 }
@@ -1708,6 +1710,11 @@ mod test {
         let (rest, t) = parse_sml_type_raw(s).unwrap();
         assert_eq!(rest, "");
         assert_eq!(t, SmlType::Vector(Box::new(SmlType::Word(WordSize::W8))));
+
+        let s = r#"State"#;
+        let (rest, t) = parse_sml_type_raw(s).unwrap();
+        assert_eq!(rest, "");
+        assert_eq!(t, SmlType::State);
     }
 
     #[test]
@@ -2118,7 +2125,8 @@ mod test {
                 ret: SmlType::Tuple(vec![]),
                 symbol_scope: CFunctionSymbolScope::Private,
                 target: CFunctionTarget::Direct("Stdio_print".to_string()),
-            },))
+            },)
+        )
     }
 
     #[test]

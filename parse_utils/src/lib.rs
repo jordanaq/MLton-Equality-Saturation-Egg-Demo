@@ -60,10 +60,7 @@ where
             delimited(multispace0(), tag("="), multispace0()),
         ),
         value_parser,
-        alt((
-            preceded(multispace0(), tag(",")),
-            take_until("}")
-        )),
+        alt((preceded(multispace0(), tag(",")), take_until("}"))),
     )
 }
 

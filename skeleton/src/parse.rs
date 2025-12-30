@@ -1,28 +1,17 @@
 use std::str::FromStr;
 
-use e_graph::{
-    fpeg::Region,
-    parse::{parse_region, parse_regions},
-};
+use e_graph::parse::{parse_region, parse_regions};
 use nom::{
-    IResult, Parser,
-    branch::alt,
-    bytes::{
-        complete::{tag, take_until},
-        take_while, take_while1,
-    },
-    character::complete::{multispace0, multispace1},
+    IResult, Parser, branch::alt, bytes::complete::tag, character::complete::multispace0,
     combinator::opt,
-    multi,
-    sequence::{delimited, preceded},
 };
 
 use mlton_ssa::{
     parse::{
-        self, parse_cases_con, parse_cases_word, parse_datatypes, parse_sml_type, parse_sml_types,
+        parse_cases_con, parse_cases_word, parse_datatypes, parse_sml_types,
         parse_transfer_call_non_tail_handler, parse_var_name, parse_wordsize,
     },
-    ssa::{Cases, Handler as MltHandler, Return, SmlType, VarId},
+    ssa::{Cases, Return},
 };
 use parse_utils::{named_object_parser, option_parser, paren_list_parser, parse_key_field};
 
@@ -39,11 +28,13 @@ fn parse_sk_transfer_call_dead(s: &str) -> IResult<&str, SkTransfer> {
         "skTransfer::call::Dead",
         (
             parse_key_field("func", parse_var_name),
+            parse_key_field("state", parse_region),
             parse_key_field("args", parse_regions),
         ),
     )
-    .map(|(func, args)| SkTransfer::Call {
+    .map(|(func, state, args)| SkTransfer::Call {
         func,
+        state,
         args,
         ret: Return::Dead,
     })
@@ -55,13 +46,15 @@ fn parse_sk_transfer_call_non_tail(s: &str) -> IResult<&str, SkTransfer> {
         "skTransfer::call::NonTail",
         (
             parse_key_field("func", parse_var_name),
+            parse_key_field("state", parse_region),
             parse_key_field("args", parse_regions),
             parse_key_field("cont_id", parse_var_name),
             parse_key_field("handler", parse_transfer_call_non_tail_handler),
         ),
     )
-    .map(|(func, args, cont_id, handler)| SkTransfer::Call {
+    .map(|(func, state, args, cont_id, handler)| SkTransfer::Call {
         func,
+        state,
         args,
         ret: Return::NonTail {
             cont: cont_id,
@@ -76,11 +69,13 @@ fn parse_sk_transfer_call_tail(s: &str) -> IResult<&str, SkTransfer> {
         "skTransfer::call::Tail",
         (
             parse_key_field("func", parse_var_name),
+            parse_key_field("state", parse_region),
             parse_key_field("args", parse_regions),
         ),
     )
-    .map(|(func, args)| SkTransfer::Call {
+    .map(|(func, state, args)| SkTransfer::Call {
         func,
+        state,
         args,
         ret: Return::Tail,
     })
@@ -101,12 +96,14 @@ fn parse_sk_transfer_case_con(s: &str) -> IResult<&str, SkTransfer> {
         "skTransfer::case::Con",
         (
             parse_key_field("test", parse_region),
+            parse_key_field("state", parse_region),
             parse_key_field("cases", parse_cases_con),
             opt(parse_key_field("default", parse_var_name).map(|l| l.to_string())),
         ),
     )
-    .map(|(test, cases, default)| SkTransfer::Case {
+    .map(|(test, state, cases, default)| SkTransfer::Case {
         test,
+        state,
         cases,
         default,
     })
@@ -119,11 +116,12 @@ fn parse_sk_transfer_case_word(s: &str) -> IResult<&str, SkTransfer> {
         (
             parse_key_field("test", parse_region),
             parse_key_field("size", parse_wordsize),
+            parse_key_field("state", parse_region),
             parse_key_field("cases", parse_cases_word),
             opt(parse_key_field("default", parse_var_name).map(|l| l.to_string())),
         ),
     )
-    .map(|(test, ws, cases, default)| {
+    .map(|(test, ws, state, cases, default)| {
         let Cases::Word(ws_cases, _) = &cases else {
             unreachable!()
         };
@@ -132,6 +130,7 @@ fn parse_sk_transfer_case_word(s: &str) -> IResult<&str, SkTransfer> {
 
         SkTransfer::Case {
             test,
+            state,
             cases,
             default,
         }
@@ -148,28 +147,43 @@ fn parse_sk_transfer_goto(s: &str) -> IResult<&str, SkTransfer> {
         "skTransfer::goto",
         (
             parse_key_field("dst", parse_var_name),
+            parse_key_field("state", parse_region),
             parse_key_field("args", parse_regions),
         ),
     )
-    .map(|(dst, args)| SkTransfer::Goto { dst, args })
+    .map(|(dst, state, args)| SkTransfer::Goto { dst, state, args })
     .parse(s)
 }
 
 fn parse_sk_transfer_raise(s: &str) -> IResult<&str, SkTransfer> {
-    named_object_parser("skTransfer::raise", parse_key_field("args", parse_regions))
-        .map(|args| SkTransfer::Raise { args })
-        .parse(s)
+    named_object_parser(
+        "skTransfer::raise",
+        (
+            parse_key_field("state", parse_region),
+            parse_key_field("args", parse_regions),
+        ),
+    )
+    .map(|(state, args)| SkTransfer::Raise { state, args })
+    .parse(s)
 }
 
 fn parse_sk_transfer_return(s: &str) -> IResult<&str, SkTransfer> {
-    named_object_parser("skTransfer::return", parse_key_field("args", parse_regions))
-        .map(|args| SkTransfer::Return { args })
-        .parse(s)
+    named_object_parser(
+        "skTransfer::return",
+        (
+            parse_key_field("state", parse_region),
+            parse_key_field("args", parse_regions),
+        ),
+    )
+    .map(|(state, args)| SkTransfer::Return { state, args })
+    .parse(s)
 }
 
+/*
 fn parse_sk_transfer_runtime(s: &str) -> IResult<&str, SkTransfer> {
     todo!()
 }
+*/
 
 fn parse_sk_transfer(s: &str) -> IResult<&str, SkTransfer> {
     alt((
@@ -205,12 +219,14 @@ fn parse_sk_block(s: &str) -> IResult<&str, Block> {
         "skBlock",
         (
             parse_key_field("label", parse_var_name),
+            parse_key_field("state", parse_region),
             parse_key_field("args", parse_regions),
             parse_key_field("transfer", parse_sk_transfer),
         ),
     )
-    .map(|(label, args, transfer)| Block {
+    .map(|(label, state, args, transfer)| Block {
         label,
+        state,
         args,
         transfer,
     })
@@ -237,6 +253,7 @@ fn parse_sk_function(s: &str) -> IResult<&str, Function> {
     named_object_parser(
         "skFunction",
         (
+            parse_key_field("state", parse_region),
             parse_key_field("args", parse_regions),
             parse_key_field("blocks", paren_list_parser(parse_sk_block)),
             parse_key_field(
@@ -250,7 +267,8 @@ fn parse_sk_function(s: &str) -> IResult<&str, Function> {
         ),
     )
     .map(
-        |(args, blocks, may_inline, name, raises, returns, start)| Function {
+        |(state, args, blocks, may_inline, name, raises, returns, start)| Function {
+            state,
             args,
             blocks,
             may_inline,
@@ -320,7 +338,7 @@ impl FromStr for crate::Skeleton {
 
 #[cfg(test)]
 mod test {
-    use mlton_ssa::ssa::{Cases, WordSize};
+    use mlton_ssa::ssa::{Cases, Handler as MltHandler, SmlType, WordSize};
 
     use super::*;
 
@@ -354,12 +372,13 @@ mod test {
     fn test_parse_sk_transfer_call_dead() {
         assert_eq!(
             parse_sk_transfer_call_dead(
-                "skTransfer::call::Dead { func = f, args = (Region<1>, Region<2>) }"
+                "skTransfer::call::Dead { func = f, state = Region<0>, args = (Region<1>, Region<2>) }"
             ),
             Ok((
                 "",
                 SkTransfer::Call {
                     func: "f".into(),
+                    state: 0.into(),
                     args: vec![1.into(), 2.into()],
                     ret: Return::Dead,
                 }
@@ -369,13 +388,14 @@ mod test {
 
     #[test]
     fn test_parse_sk_transfer_call_non_tail() {
-        let s = r#"skTransfer::call::NonTail { func = f, args = (Region<1>, Region<2>), cont_id = L, handler = handler::Handle { label = h } }"#;
+        let s = r#"skTransfer::call::NonTail { func = f, state = Region<0>, args = (Region<1>, Region<2>), cont_id = L, handler = handler::Handle { label = h } }"#;
         let (rest, transfer) = parse_sk_transfer_call_non_tail(s).unwrap();
         assert_eq!(rest, "");
         assert_eq!(
             transfer,
             SkTransfer::Call {
                 func: "f".into(),
+                state: 0.into(),
                 args: vec![1.into(), 2.into()],
                 ret: Return::NonTail {
                     cont: "L".into(),
@@ -387,13 +407,14 @@ mod test {
 
     #[test]
     fn test_parse_sk_transfer_call_tail() {
-        let s = r#"skTransfer::call::Tail { func = f, args = (Region<1>, Region<2>) }"#;
+        let s = r#"skTransfer::call::Tail { func = f, state = Region<0>, args = (Region<1>, Region<2>) }"#;
         let (rest, transfer) = parse_sk_transfer_call_tail(s).unwrap();
         assert_eq!(rest, "");
         assert_eq!(
             transfer,
             SkTransfer::Call {
                 func: "f".into(),
+                state: 0.into(),
                 args: vec![1.into(), 2.into()],
                 ret: Return::Tail,
             }
@@ -402,13 +423,14 @@ mod test {
 
     #[test]
     fn test_parse_sk_transfer_call() {
-        let s = r#"skTransfer::call::Dead { func = f, args = (Region<1>, Region<2>) }"#;
+        let s = r#"skTransfer::call::Dead { func = f, state = Region<0>, args = (Region<1>, Region<2>) }"#;
         let (rest, transfer) = parse_sk_transfer_call(s).unwrap();
         assert_eq!(rest, "");
         assert_eq!(
             transfer,
             SkTransfer::Call {
                 func: "f".into(),
+                state: 0.into(),
                 args: vec![1.into(), 2.into()],
                 ret: Return::Dead,
             }
@@ -419,6 +441,7 @@ mod test {
     fn test_parse_sk_transfer_case_con() {
         let s = r#"skTransfer::case::Con {
             test = Region<1>,
+            state = Region<0>,
             cases = 
                 (nil_0 => L1,
                  ::_2 => L2),
@@ -430,6 +453,7 @@ mod test {
             transfer,
             SkTransfer::Case {
                 test: 1.into(),
+                state: 0.into(),
                 cases: Cases::Con(vec![
                     ("nil_0".into(), "L1".into()),
                     ("::_2".into(), "L2".into()),
@@ -444,6 +468,7 @@ mod test {
         let s = r#"skTransfer::case::Word {
             test = Region<1>,
             size = w64,
+            state = Region<0>,
             cases = 
                 (0x0:w64 => L1,
                  0x1:w64 => L2),
@@ -455,6 +480,7 @@ mod test {
             transfer,
             SkTransfer::Case {
                 test: 1.into(),
+                state: 0.into(),
                 cases: Cases::Word(WordSize::W64, vec![(0, "L1".into()), (1, "L2".into()),]),
                 default: Some("L3".into()),
             }
@@ -465,6 +491,7 @@ mod test {
     fn test_parse_sk_transfer_case() {
         let s = r#"skTransfer::case::Con {
             test = Region<1>,
+            state = Region<0>,
             cases = 
                 (nil_0 => L1,
                  ::_2 => L2),
@@ -476,6 +503,7 @@ mod test {
             transfer,
             SkTransfer::Case {
                 test: 1.into(),
+                state: 0.into(),
                 cases: Cases::Con(vec![
                     ("nil_0".into(), "L1".into()),
                     ("::_2".into(), "L2".into()),
@@ -487,13 +515,14 @@ mod test {
 
     #[test]
     fn test_parse_sk_transfer_goto() {
-        let s = r#"skTransfer::goto { dst = L, args = (Region<1>, Region<2>) }"#;
+        let s = r#"skTransfer::goto { dst = L, state = Region<0>, args = (Region<1>, Region<2>) }"#;
         let (rest, transfer) = parse_sk_transfer_goto(s).unwrap();
         assert_eq!(rest, "");
         assert_eq!(
             transfer,
             SkTransfer::Goto {
                 dst: "L".into(),
+                state: 0.into(),
                 args: vec![1.into(), 2.into()],
             }
         );
@@ -501,12 +530,13 @@ mod test {
 
     #[test]
     fn test_parse_sk_transfer_raise() {
-        let s = r#"skTransfer::raise { args = (Region<1>, Region<2>) }"#;
+        let s = r#"skTransfer::raise { state = Region<0>, args = (Region<1>, Region<2>) }"#;
         let (rest, transfer) = parse_sk_transfer_raise(s).unwrap();
         assert_eq!(rest, "");
         assert_eq!(
             transfer,
             SkTransfer::Raise {
+                state: 0.into(),
                 args: vec![1.into(), 2.into()],
             }
         );
@@ -514,12 +544,13 @@ mod test {
 
     #[test]
     fn test_parse_sk_transfer_return() {
-        let s = r#"skTransfer::return { args = (Region<1>, Region<2>) }"#;
+        let s = r#"skTransfer::return { state = Region<0>, args = (Region<1>, Region<2>) }"#;
         let (rest, transfer) = parse_sk_transfer_return(s).unwrap();
         assert_eq!(rest, "");
         assert_eq!(
             transfer,
             SkTransfer::Return {
+                state: 0.into(),
                 args: vec![1.into(), 2.into()],
             }
         );
@@ -527,13 +558,14 @@ mod test {
 
     #[test]
     fn test_parse_sk_transfer() {
-        let s = r#"skTransfer::call::Dead { func = f, args = (Region<1>, Region<2>) }"#;
+        let s = r#"skTransfer::call::Dead { func = f, state = Region<0>, args = (Region<1>, Region<2>) }"#;
         let (rest, transfer) = parse_sk_transfer(s).unwrap();
         assert_eq!(rest, "");
         assert_eq!(
             transfer,
             SkTransfer::Call {
                 func: "f".into(),
+                state: 0.into(),
                 args: vec![1.into(), 2.into()],
                 ret: Return::Dead,
             }
@@ -547,12 +579,13 @@ mod test {
 
     #[test]
     fn test_sk_transfer_from_str() {
-        let s = r#"skTransfer::call::Dead { func = f, args = (Region<1>, Region<2>) }"#;
+        let s = r#"skTransfer::call::Dead { func = f, state = Region<0>, args = (Region<1>, Region<2>) }"#;
         let transfer: SkTransfer = s.parse().unwrap();
         assert_eq!(
             transfer,
             SkTransfer::Call {
                 func: "f".into(),
+                state: 0.into(),
                 args: vec![1.into(), 2.into()],
                 ret: Return::Dead,
             }
@@ -567,6 +600,7 @@ mod test {
     fn test_parse_sk_block() {
         let s = r#"skBlock {
             label = L,
+            state = Region<0>,
             args = (Region<1>, Region<2>),
             transfer = skTransfer::Bug {}
         }"#;
@@ -576,6 +610,7 @@ mod test {
             block,
             crate::Block {
                 label: "L".into(),
+                state: 0.into(),
                 args: vec![1.into(), 2.into()],
                 transfer: SkTransfer::Bug,
             }
@@ -586,6 +621,7 @@ mod test {
     fn test_sk_block_from_str() {
         let s = r#"skBlock {
             label = L,
+            state = Region<0>,
             args = (Region<1>, Region<2>),
             transfer = skTransfer::Bug {}
         }"#;
@@ -594,6 +630,7 @@ mod test {
             block,
             crate::Block {
                 label: "L".into(),
+                state: 0.into(),
                 args: vec![1.into(), 2.into()],
                 transfer: SkTransfer::Bug,
             }
@@ -603,13 +640,16 @@ mod test {
     #[test]
     fn test_parse_sk_function() {
         let s = r#"skFunction {
+            state = Region<0>,
             args = (Region<1>, Region<2>),
             blocks = (skBlock {
                 label = L1,
+                state = Region<0>,
                 args = (Region<1>),
                 transfer = skTransfer::Bug {}
             }, skBlock {
                 label = L2,
+                state = Region<0>,
                 args = (Region<2>),
                 transfer = skTransfer::Bug {}
             }),
@@ -624,15 +664,18 @@ mod test {
         assert_eq!(
             function,
             Function {
+                state: 0.into(),
                 args: vec![1.into(), 2.into()],
                 blocks: vec![
                     crate::Block {
                         label: "L1".into(),
+                        state: 0.into(),
                         args: vec![1.into()],
                         transfer: SkTransfer::Bug,
                     },
                     crate::Block {
                         label: "L2".into(),
+                        state: 0.into(),
                         args: vec![2.into()],
                         transfer: SkTransfer::Bug,
                     },
@@ -652,13 +695,16 @@ mod test {
     #[test]
     fn test_sk_function_from_str() {
         let s = r#"skFunction {
+            state = Region<0>,
             args = (Region<1>, Region<2>),
             blocks = (skBlock {
                 label = L1,
+                state = Region<0>,
                 args = (Region<1>),
                 transfer = skTransfer::Bug {}
             }, skBlock {
                 label = L2,
+                state = Region<0>,
                 args = (Region<2>),
                 transfer = skTransfer::Bug {}
             }),
@@ -672,15 +718,18 @@ mod test {
         assert_eq!(
             function,
             Function {
+                state: 0.into(),
                 args: vec![1.into(), 2.into()],
                 blocks: vec![
                     crate::Block {
                         label: "L1".into(),
+                        state: 0.into(),
                         args: vec![1.into()],
                         transfer: SkTransfer::Bug,
                     },
                     crate::Block {
                         label: "L2".into(),
+                        state: 0.into(),
                         args: vec![2.into()],
                         transfer: SkTransfer::Bug,
                     },
